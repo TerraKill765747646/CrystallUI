@@ -19,11 +19,16 @@ local function Import(path)
 		return cached
 	end
 	assert(not Loading[path], "[CrystallUI] Circular import: " .. path)
-	Loading[path] = true
-	local ok, source = pcall(game.HttpGet, game, REPO_URL .. path .. ".luau")
+Loading[path] = true
+	local url = REPO_URL .. path .. ".luau?t=" .. os.time()
+	local ok, source = pcall(game.HttpGet, game, url)
 	if not ok or type(source) ~= "string" then
 		Loading[path] = nil
-		error("[CrystallUI] Failed to fetch '" .. path .. "': " .. tostring(source), 2)
+		error("[CrystallUI] Failed to fetch '" .. url .. "': " .. tostring(source), 2)
+	end
+	if source:sub(1, 3) == "404" then
+		Loading[path] = nil
+		error("[CrystallUI] 404 по адресу: " .. url, 2)
 	end
 	local fn, err = loadstring(source, "=" .. path)
 	if not fn then
