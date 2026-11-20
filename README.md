@@ -17,14 +17,7 @@ tests/               мок Roblox API и раннер для headless-прог�
 ## Установка
 
 ```lua
-local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/USER/CrystallUI/main/Init.luau"))()
-```
-
-Замени `USER` на свой аккаунт. Если репозиторий лежит в другом месте, передай адрес явно:
-
-```lua
-local Library = loadstring(game:HttpGet(INIT_URL))("https://example.com/crystall/")          -- строка = RepoUrl
-local Library = loadstring(game:HttpGet(INIT_URL))({ RepoUrl = "https://example.com/crystall/" })
+local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/TerraKill765747646/CrystallUI/main/Init.luau"))()
 ```
 
 ### Параметры загрузки
