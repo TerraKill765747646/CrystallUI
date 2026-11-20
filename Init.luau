@@ -5,7 +5,7 @@ elseif type(Config) ~= "table" then
 	Config = {}
 end
 
-local REPO_URL = Config.RepoUrl or Config.REPO_URL or "https://raw.githubusercontent.com/USER/CrystallUI/main/"
+local REPO_URL = Config.RepoUrl or Config.REPO_URL or "https://raw.githubusercontent.com/TerraKill765747646/CrystallUI/main/"
 if REPO_URL:sub(-1) ~= "/" then
 	REPO_URL ..= "/"
 end
@@ -100,4 +100,4 @@ if Config.Theme then
 	Theme:SetTheme(Config.Theme)
 end
 
-return Library
+return Library
