@@ -1,7 +1,7 @@
 --[[
 	CrystallUI demo: every control, theming, config and notifications in one window.
 
-	    loadstring(game:HttpGet("https://raw.githubusercontent.com/USER/CrystallUI/main/Example.luau"))()
+	    loadstring(game:HttpGet("https://raw.githubusercontent.com/TerraKill765747646/CrystallUI/main/Example.luau"))()
 
 	Local development (modules read from the executor workspace instead of GitHub):
 	    local Library = loadstring(readfile("CrystallUI/Init.luau"))({ LocalPath = "CrystallUI" })
@@ -10,7 +10,7 @@
 
 local Library = ...
 if type(Library) ~= "table" then
-	Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/USER/CrystallUI/main/Init.luau"))({
+	Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/TerraKill765747646/CrystallUI/refs/heads/main/Init.luau"))({
 		Theme = { Palette = "Amethyst" },
 	})
 end
