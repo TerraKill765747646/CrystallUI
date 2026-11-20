@@ -38,7 +38,9 @@ local function Element(self, row, title, o, api)
 	function api:SetVisible(state)
 		row.Visible = state
 	end
+	local windowMaid = self.Window.Maid
 	function api:Destroy()
+		windowMaid:Remove(self)
 		maid:Clean()
 		row:Destroy()
 		if self.Flag and Core.Library.Flags[self.Flag] == self then
@@ -46,7 +48,7 @@ local function Element(self, row, title, o, api)
 		end
 	end
 	Core.RegisterFlag(o.Flag, api)
-	self.Window.Maid:Give(api)
+	windowMaid:Give(api)
 	return api, maid
 end
 
@@ -306,6 +308,12 @@ function Elements:CreateSlider(o)
 	local range = o.Range or { 0, 100 }
 	local min, max = range[1], range[2]
 	local increment = o.Increment or 1
+	if type(increment) ~= "number" or increment <= 0 then
+		increment = 1
+	end
+	if min > max then
+		min, max = max, min
+	end
 	local row, title = Row(self, o, 54)
 	title.Size = UDim2.new(1, -110, 0, 32)
 	local api, maid = Element(self, row, title, o, { Value = min })
@@ -373,13 +381,30 @@ function Elements:CreateSlider(o)
 	end
 
 	local dragging = false
+	local scroller
+	local function SetDragging(state)
+		dragging = state
+		-- on touch the page would scroll under the finger while the slider is dragged
+		if state then
+			scroller = bar:FindFirstAncestorWhichIsA("ScrollingFrame")
+			if scroller then
+				scroller.ScrollingEnabled = false
+			end
+		elseif scroller then
+			scroller.ScrollingEnabled = true
+			scroller = nil
+		end
+	end
+	maid:Give(function()
+		SetDragging(false)
+	end)
 	local function FromX(x)
 		local width = math.max(bar.AbsoluteSize.X, 1)
 		api:Set(min + (max - min) * math.clamp((x - bar.AbsolutePosition.X) / width, 0, 1), false, true)
 	end
 	maid:Give(bar.InputBegan:Connect(function(input)
 		if Core.IsPointer(input) then
-			dragging = true
+			SetDragging(true)
 			FromX(input.Position.X)
 		end
 	end))
@@ -389,8 +414,8 @@ function Elements:CreateSlider(o)
 		end
 	end))
 	maid:Give(UIS.InputEnded:Connect(function(input)
-		if Core.IsPointer(input) then
-			dragging = false
+		if Core.IsPointer(input) and dragging then
+			SetDragging(false)
 		end
 	end))
 	maid:Give(box.FocusLost:Connect(function()
@@ -707,6 +732,11 @@ function Elements:CreateLabel(o)
 	end
 	local row, title = Row(self, { Name = o.Text or o.Name or "" }, 32)
 	title.Font = Enum.Font.Gotham
+	title.TextWrapped = true
+	title.Size = UDim2.new(1, -24, 0, 32)
+	title.AutomaticSize = Enum.AutomaticSize.Y
+	row.AutomaticSize = Enum.AutomaticSize.Y
+	Core.Padding(title, 6, 0, 6, 0)
 	local api = Element(self, row, title, o)
 	function api:Set(text)
 		title.Text = tostring(text)
@@ -778,4 +808,4 @@ function Elements:CreateDivider()
 	return (Element(self, row, nil, {}))
 end
 
-return Elements
+return Elements

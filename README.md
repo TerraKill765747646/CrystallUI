@@ -1,424 +1,237 @@
 # Crystall UI
 
-A modern, modular, Rayfield-style Roblox Luau UI library with decoupled **Color Palettes** and **Motion Profiles**, live theme hot-swapping, stacked notifications, flag-based config serialization, and full connection/tween cleanup.
+Библиотека интерфейса для Roblox (Luau): окна, вкладки, секции, контролы, темы с анимацией, уведомления, конфиги.
+Модули подгружаются по HTTP одной строкой, зависимостей нет.
 
----
-
-## Features
-
-- **Remote Modular Loader (`Init.luau`)**: Loads and caches modules dynamically from GitHub via `game:HttpGet` + `loadstring`.
-- **Decoupled Visuals & Motion**: Mix any color **Palette** (`Amethyst`, `RoyalTopaz`) with any **Motion Profile** (`Minimal`, `Brutal`) at runtime without recreating UI elements.
-- **Rayfield-Style API**: Familiar `CreateWindow` → `CreateTab` → `CreateSection` → `Create*` hierarchy. Controls can be placed directly inside a `Tab` or grouped inside a `Section`.
-- **Safe Parenting & Cleanup**: Automatically targets `gethui()` → `CoreGui` → `PlayerGui` (with `syn.protect_gui` support) and cleans up all `RBXScriptConnection`s, tweens, and `ScreenGui` instances via `Destroy()`.
-- **Config System**: Built-in `Flags` registry with JSON/table `ExportConfig()` and `ImportConfig()`.
-
----
-
-## Repository Structure
-
-```text
-CrystallUI/
-├── Init.luau              # Entry point & remote module loader/cacher
-└── src/
-    ├── ThemeEngine.luau   # Palettes, Motion Profiles, Animator, ThemeBinder
-    ├── Core.luau          # Window, Tabs, Sections, Maid cleanup, Config API
-    ├── Notifications.luau # Stacked notification queue
-    └── Controls.luau      # All UI controls & element builders
+```
+Init.luau            точка входа, лоадер модулей, публичный API
+src/ThemeEngine      палитры, профили анимации, биндинг цветов к инстансам
+src/Core             окно, вкладки, секции, Maid, флаги, конфиги
+src/Controls         все контролы
+src/Notifications    очередь уведомлений
+Example.luau         демо всех возможностей
+Tests.luau           переносимый набор тестов (executor и headless)
+tests/               мок Roblox API и раннер для headless-прогона
 ```
 
----
-
-## Quick Start
+## Установка
 
 ```lua
-local Crystall = loadstring(game:HttpGet("https://raw.githubusercontent.com/TerraKill765747646/CrystallUI/refs/heads/main/Init.luau"))()
-
-local Window = Crystall:CreateWindow({
-	Name = "Crystall Hub",
-	Subtitle = "v1.0.0",
-	ToggleKey = Enum.KeyCode.RightShift,
-	Theme = { Palette = "Amethyst", Motion = "Minimal" },
-})
-
-local MainTab = Window:CreateTab("Main")
-local Section = MainTab:CreateSection("Actions", { Collapsible = true })
-
-Section:CreateButton({
-	Name = "Test Notification",
-	Callback = function()
-		Crystall:Notify({
-			Title = "Ready",
-			Content = "Crystall UI loaded successfully.",
-			Duration = 4,
-			Type = "Success",
-		})
-	end,
-})
+local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/USER/CrystallUI/main/Init.luau"))()
 ```
 
-### Custom Loader Options
-
-You can pass a custom base URL or initial theme table when executing `Init.luau`:
+Замени `USER` на свой аккаунт. Если репозиторий лежит в другом месте, передай адрес явно:
 
 ```lua
-local Crystall = loadstring(game:HttpGet(".../Init.luau"))({
-	RepoUrl = "https://raw.githubusercontent.com/USER/REPO/main/",
-	Theme = { Palette = "RoyalTopaz", Motion = "Minimal" },
-})
+local Library = loadstring(game:HttpGet(INIT_URL))("https://example.com/crystall/")          -- строка = RepoUrl
+local Library = loadstring(game:HttpGet(INIT_URL))({ RepoUrl = "https://example.com/crystall/" })
 ```
 
-Passing a string directly is also supported: `loadstring(game:HttpGet(".../Init.luau"))("https://raw.githubusercontent.com/USER/REPO/main/")`.
+### Параметры загрузки
 
----
+| Поле | Что делает |
+|---|---|
+| `RepoUrl` | Базовый URL с файлами (`src/Core.luau` и т.д.). Слэш в конце необязателен. |
+| `Theme` | `{ Palette = "...", Motion = "..." }`, применяется сразу после загрузки. |
+| `LocalPath` | Папка в workspace экзекьютора. Модули читаются через `readfile`, сеть не нужна. Удобно при разработке. |
+| `Loader` | `function(path) -> string`, полная замена загрузчика. `path` вида `"src/Core"`. |
 
-## API Reference
-
-### `Library` (Root Object)
-
-#### Properties
-- `Library.Version`: `string` (`"1.0.0"`)
-- `Library.Flags`: `{ [string]: Element }` — Registry of all elements created with a `Flag`.
-- `Library.Windows`: `{ Window }` — Active window instances.
-- `Library.Theme`: `ThemeEngine` — Direct reference to the theme engine.
-- `Library.RepoUrl`: `string` — Active base URL used by `Import`.
-
-#### Methods
-- `Library:CreateWindow(options: WindowOptions) -> Window`
-- `Library:Notify(options: NotifyOptions | string) -> NotificationHandle`
-- `Library:SetPalette(name: string, keepMotion: boolean?)`
-  - Switches the active palette. If `keepMotion` is omitted/falsy and the palette defines `DefaultMotion`, it also switches the motion profile. Pass `true` (or use `SetTheme`) to preserve the current motion profile.
-- `Library:SetMotion(name: string)`
-  - Switches the active motion profile (`"Minimal"`, `"Brutal"`, or custom).
-- `Library:SetTheme(config: { Palette: string?, Motion: string? })`
-  - Applies palette and/or motion independently in one call.
-- `Library:RegisterPalette(name: string, palette: table) -> table`
-  - Registers a new palette (clones `Amethyst` defaults for any omitted keys).
-- `Library:RegisterMotion(name: string, motion: table) -> table`
-  - Registers a new motion profile (clones `Minimal` defaults for any omitted keys).
-- `Library:GetFlag(flag: string) -> any`
-  - Returns the current value of `Library.Flags[flag]:Get()`.
-- `Library:ExportConfig(asTable: boolean?) -> string | table`
-  - Exports all flag values as a JSON string (default) or a Lua table (`asTable = true`).
-- `Library:ImportConfig(data: string | table) -> (boolean, string?)`
-  - Restores flag values from a JSON string or table by calling `:Set(value)` on matching elements.
-- `Library:Destroy()`
-  - Destroys all windows, notification GUIs, active tweens, connections, theme bindings, and clears `Flags`.
-
----
-
-### Window
-
-Created via `Library:CreateWindow(options)`.
-
-#### `WindowOptions`
-| Field | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `Name` | `string?` | `"Crystall UI"` | Window title. |
-| `Subtitle` | `string?` | `nil` | Optional secondary line below title. |
-| `Size` | `UDim2?` | `UDim2.fromOffset(560, 380)` | Window dimensions. |
-| `ToggleKey` | `Enum.KeyCode \| string?` | `Enum.KeyCode.RightShift` | Keybind to show/hide the window. |
-| `Search` | `boolean?` | `true` | Set to `false` to hide the sidebar tab search box. |
-| `Theme` | `{ Palette: string?, Motion: string? }?` | `nil` | Optional theme applied on creation. |
-
-#### Window Methods
-- `Window:CreateTab(name: string, icon: string?) -> Tab`
-- `Window:Toggle(state: boolean?)` — Opens/closes the window (`nil` toggles current state).
-- `Window:Minimize(state: boolean?)` — Collapses/expands the window (`nil` toggles current state).
-- `Window:SetToggleKey(key: Enum.KeyCode | string | nil)` — Updates the window toggle keybind.
-- `Window:Destroy()` — Destroys this window and disconnects all its listeners.
-
----
-
-### Tabs & Sections
-
-Both `Tab` and `Section` inherit all `Create*` control methods, so controls can be added directly to either.
-
-#### Tab Methods (`Window:CreateTab(name, icon)`)
-- `Tab:Select()` — Switches view to this tab.
-- `Tab:CreateSection(name: string, options: { Collapsible: boolean?, Collapsed: boolean? }?) -> Section`
-
-#### Section Methods (`Tab:CreateSection(name, options)`)
-- `Section:SetCollapsed(state: boolean)` — Collapses or expands section contents (when `Collapsible = true`).
-- `Section:Destroy()` — Removes the section frame.
-
----
-
-### Controls
-
-#### Common Element Methods & Properties
-Every control returns an `element` object with:
-- `element.Instance`: `Frame`
-- `element.Flag`: `string?`
-- `element:SetTitle(text: string)`
-- `element:SetVisible(state: boolean)`
-- `element:Destroy()`
-
----
-
-#### `CreateButton(options)`
-| Field | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `Name` | `string` | `""` | Button label. |
-| `Flag` | `string?` | `nil` | Optional flag identifier. |
-| `Callback` | `(() -> ())?` | `nil` | Invoked on click. |
-
----
-
-#### `CreateToggle(options)`
-| Field | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `Name` | `string` | `""` | Toggle label. |
-| `CurrentValue` / `Default` | `boolean?` | `false` | Initial state (`CurrentValue` takes priority). |
-| `Flag` | `string?` | `nil` | Flag key for config export/import. |
-| `Callback` | `((value: boolean) -> ())?` | `nil` | Invoked when state changes. |
-
-- `toggle:Set(value: boolean, silent: boolean?)`
-- `toggle:Get() -> boolean`
-
----
-
-#### `CreateChecklist(options)`
-Multi-select checkbox list with built-in **Select All** and **Clear** buttons.
-
-| Field | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `Name` | `string` | `""` | Checklist header title. |
-| `Options` | `{ string }` | `{}` | List of selectable item names. |
-| `CurrentValue` / `Default` | `{ string }?` | `{}` | Initially selected options. |
-| `Flag` | `string?` | `nil` | Flag key for config export/import. |
-| `Callback` | `((selected: { string }) -> ())?` | `nil` | Invoked with ordered array of selected items. |
-
-- `checklist:GetSelected() -> { string }` (alias: `checklist:Get()`)
-- `checklist:Set(list: { string }, silent: boolean?)`
-
----
-
-#### `CreateSlider(options)`
-Draggable slider with direct numeric `TextBox` input.
-
-| Field | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `Name` | `string` | `""` | Slider label. |
-| `Range` | `{ number }` | `{ 0, 100 }` | `{ min, max }` bounds. |
-| `Increment` | `number?` | `1` | Step size. |
-| `Suffix` | `string?` | `nil` | Optional unit suffix (e.g. `"studs"`, `"%"`). |
-| `CurrentValue` / `Default` | `number?` | `min` | Initial value. |
-| `Flag` | `string?` | `nil` | Flag key for config export/import. |
-| `Callback` | `((value: number) -> ())?` | `nil` | Invoked when value changes. |
-
-- `slider:Set(value: number, silent: boolean?, instant: boolean?)`
-- `slider:Get() -> number`
-
----
-
-#### `CreateDropdown(options)`
-Supports single-select, multi-select, live search filtering, and dynamic option refreshing.
-
-| Field | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `Name` | `string` | `""` | Dropdown label. |
-| `Options` | `{ string }` | `{}` | Available choices. |
-| `CurrentOption` / `Default` | `string \| { string }?` | `nil` | Initial selection. |
-| `MultipleOptions` / `Multi` | `boolean?` | `false` | Enable multi-select mode. |
-| `Search` | `boolean?` | `false` | Enable search filter box inside dropdown. |
-| `Flag` | `string?` | `nil` | Flag key for config export/import. |
-| `Callback` | `((value: string \| { string }) -> ())?` | `nil` | Invoked when selection changes. |
-
-- `dropdown:Set(value: string | { string } | nil, silent: boolean?)`
-- `dropdown:Get() -> string | { string } | nil`
-- `dropdown:Refresh(newOptions: { string }, keepSelection: boolean?)`
-- `dropdown:SetOpen(state: boolean)`
-
----
-
-#### `CreateKeybind(options)`
-Press `Escape` or `Backspace` while listening to clear a keybind to `"None"`.
-
-| Field | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `Name` | `string` | `""` | Keybind label. |
-| `CurrentKeybind` / `Default` | `Enum.KeyCode \| string?` | `nil` | Initial key (e.g. `"F"` or `Enum.KeyCode.F`). |
-| `Flag` | `string?` | `nil` | Flag key for config export/import. |
-| `Callback` | `((key: Enum.KeyCode) -> ())?` | `nil` | Fires when the bound key is pressed (unprocessed). |
-| `ChangedCallback` | `((key: Enum.KeyCode?) -> ())?` | `nil` | Fires when the user assigns or clears the key. |
-
-- `keybind:Set(key: Enum.KeyCode | string | nil, silent: boolean?)`
-- `keybind:Get() -> string` — Returns `KeyCode.Name` or `"None"`.
-
----
-
-#### `CreateInput(options)`
-| Field | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `Name` | `string` | `""` | Input label. |
-| `PlaceholderText` | `string?` | `"Type here..."` | Placeholder shown when empty. |
-| `CurrentValue` / `Default` | `string?` | `""` | Initial text. |
-| `RemoveTextAfterFocusLost` | `boolean?` | `false` | Clears input box visually after focus lost. |
-| `Flag` | `string?` | `nil` | Flag key for config export/import. |
-| `Callback` | `((text: string, enterPressed: boolean) -> ())?` | `nil` | Invoked on `FocusLost`. |
-
-- `input:Set(text: string, silent: boolean?)`
-- `input:Get() -> string`
-
----
-
-#### `CreateLabel(options)` / `CreateParagraph(options)` / `CreateDivider()`
-- **`CreateLabel(text | { Text?, Name?, Flag? })`**
-  - `label:Set(text: string)`
-- **`CreateParagraph({ Title?, Content?, Flag? })`**
-  - `paragraph:Set(data: string | { Title?: string, Content?: string })`
-- **`CreateDivider()`**
-  - Renders a horizontal theme-aware separator line.
-
----
-
-### Notifications
-
-`Library:Notify(options)` manages a bottom-right stacked queue (`Max = 4` concurrent notifications).
-
-| Field | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `Title` | `string?` | `"Notification"` | Header text. |
-| `Content` | `string?` | `""` | Body text (auto-wraps). |
-| `Duration` | `number?` | `5` | Auto-dismiss time in seconds. |
-| `Type` | `"Info" \| "Success" \| "Warning" \| "Error"?` | `nil` (`Accent`) | Accent stripe & progress bar color key. |
-| `Actions` | `{ { Name: string?, Callback: (() -> ())? } }?` | `nil` | Optional action buttons (clicking closes the toast). |
-
-Returns `handle` with `handle:Close()`.
-
----
-
-## Themes & Custom Presets
-
-### Built-in Presets
-- **Palettes**: `"Amethyst"` (default), `"RoyalTopaz"`
-- **Motions**: `"Minimal"` (default for `Amethyst`), `"Brutal"` (default for `RoyalTopaz`)
-
-### Custom Palette & Motion Schema
+## Быстрый старт
 
 ```lua
-Crystall:RegisterPalette("Emerald", {
-	Background = Color3.fromRGB(12, 20, 16),
-	Surface = Color3.fromRGB(20, 32, 26),
-	Elevated = Color3.fromRGB(30, 48, 39),
-	Stroke = Color3.fromRGB(48, 78, 62),
-	Accent = Color3.fromRGB(64, 224, 144),
-	AccentText = Color3.fromRGB(10, 20, 14),
-	Text = Color3.fromRGB(235, 245, 240),
-	SubText = Color3.fromRGB(145, 175, 160),
-})
+local Window = Library:CreateWindow({ Name = "My Hub", Subtitle = "v1", ToggleKey = "RightShift" })
+local Tab = Window:CreateTab("Main")
+local Section = Tab:CreateSection("Combat")
 
-Crystall:RegisterMotion("Snappy", {
-	Duration = 0.2,
-	Fast = 0.1,
-	Style = Enum.EasingStyle.Exponential,
-	Direction = Enum.EasingDirection.Out,
-	ColorStyle = Enum.EasingStyle.Quad,
-	Scale = 0.88,
-	Offset = 20,
-})
-
-Crystall:SetTheme({ Palette = "Emerald", Motion = "Snappy" })
-```
-
-Listen to live theme changes:
-
-```lua
-local conn = Crystall.Theme:OnChanged(function(kind, name)
-	print("Theme changed:", kind, name) -- kind is "Palette" or "Motion"
-end)
--- conn:Disconnect()
-```
-
----
-
-## Full Usage Example
-
-```lua
-local Crystall = loadstring(game:HttpGet("https://raw.githubusercontent.com/TerraKill765747646/CrystallUI/refs/heads/main/Init.luau"))()
-
-local Window = Crystall:CreateWindow({
-	Name = "Crystall Demo",
-	Subtitle = "Full API",
-	ToggleKey = Enum.KeyCode.RightShift,
-	Search = true,
-	Theme = { Palette = "Amethyst", Motion = "Minimal" },
-})
-
-local Combat = Window:CreateTab("Combat")
-local Misc = Combat:CreateSection("Utilities", { Collapsible = true })
-
-Misc:CreateToggle({
-	Name = "Auto Parry",
+Section:CreateToggle({
+	Name = "Auto farm",
+	Flag = "autofarm",
 	CurrentValue = false,
-	Flag = "AutoParry",
-	Callback = function(v) print("AutoParry:", v) end,
+	Callback = function(value) print(value) end,
 })
 
-Misc:CreateSlider({
-	Name = "Reach",
-	Range = { 5, 30 },
-	Increment = 0.5,
-	Suffix = "studs",
-	CurrentValue = 12,
-	Flag = "Reach",
-	Callback = function(v) print("Reach:", v) end,
-})
+Library:Notify({ Title = "Ready", Content = "Loaded.", Type = "Success" })
+```
 
-Misc:CreateDropdown({
-	Name = "Targets",
-	Options = { "Players", "NPCs", "Bosses" },
-	CurrentOption = { "Players" },
-	MultipleOptions = true,
-	Search = true,
-	Flag = "Targets",
-	Callback = function(list) print("Targets:", table.concat(list, ", ")) end,
-})
+Полный пример со всеми контролами: `Example.luau`.
 
-Misc:CreateChecklist({
-	Name = "Checks",
-	Options = { "Visible", "Alive", "TeamCheck" },
-	CurrentValue = { "Alive" },
-	Flag = "Checks",
-	Callback = function(list) print("Checks:", table.concat(list, ", ")) end,
-})
+## Окно
 
-local Settings = Window:CreateTab("Settings")
-
-Settings:CreateDropdown({
-	Name = "Palette",
-	Options = { "Amethyst", "RoyalTopaz" },
-	CurrentOption = "Amethyst",
-	Callback = function(p) Crystall:SetPalette(p, true) end,
-})
-
-Settings:CreateDropdown({
-	Name = "Motion",
-	Options = { "Minimal", "Brutal" },
-	CurrentOption = "Minimal",
-	Callback = function(m) Crystall:SetMotion(m) end,
-})
-
-local savedJson = ""
-Settings:CreateButton({
-	Name = "Export Config",
-	Callback = function()
-		savedJson = Crystall:ExportConfig()
-		Crystall:Notify({ Title = "Config", Content = "Exported to memory.", Type = "Info" })
-	end,
-})
-
-Settings:CreateButton({
-	Name = "Import Config",
-	Callback = function()
-		if savedJson ~= "" then
-			Crystall:ImportConfig(savedJson)
-		end
-	end,
-})
-
-Settings:CreateButton({
-	Name = "Unload UI",
-	Callback = function() Crystall:Destroy() end,
+```lua
+Library:CreateWindow({
+	Name = "Crystall UI",       -- заголовок
+	Subtitle = nil,             -- мелкий текст под заголовком
+	Size = UDim2.fromOffset(560, 380),
+	ToggleKey = "RightShift",   -- имя KeyCode, EnumItem или false (без хоткея)
+	Search = true,              -- false убирает поиск по вкладкам
+	Theme = { Palette = "Amethyst", Motion = "Minimal" },
 })
 ```
+
+| Метод | Описание |
+|---|---|
+| `Window:CreateTab(name, icon?)` | Новая вкладка. `icon` — любая строка (эмодзи, символ), печатается перед названием. Первая вкладка выбирается сама. |
+| `Window:SelectTab(tab \| name \| index)` | Выбрать вкладку, возвращает её или `nil`. |
+| `Window:Toggle(state?)` | Показать/скрыть. Без аргумента переключает. |
+| `Window:Minimize(state?)` | Свернуть до заголовка. |
+| `Window:SetToggleKey(key)` | Сменить хоткей. Невалидное имя отключает его. |
+| `Window:Destroy()` | Убрать окно и все его подключения. |
+
+Окно перетаскивается за заголовок и не уходит за пределы экрана.
+
+`Tab:CreateSection(name, { Collapsible = false, Collapsed = false })` создаёт секцию. У секции есть `SetCollapsed(bool)`, `SetTitle(text)`, `Destroy()`.
+Контролы можно создавать и прямо на вкладке, без секции.
+
+## Контролы
+
+Создаются методами `CreateXxx` у вкладки или секции. Общие поля и методы у всех:
+
+| | |
+|---|---|
+| `Name` | Подпись. |
+| `Flag` | Строковый ключ для конфигов и `Library:GetFlag`. Повтор ключа выводит предупреждение, побеждает последний элемент. |
+| `Callback` | Вызывается в отдельном потоке, ошибки ловятся и выводятся через `warn`. |
+| `api:SetTitle(text)`, `api:SetVisible(bool)`, `api:Destroy()` | Работают у каждого элемента. `Destroy` освобождает флаг. |
+| `api.Instance` | Корневой `Frame` элемента. |
+
+`Set(value, silent)` у всех значимых элементов: если `silent` истинно, колбэк не вызывается.
+
+| Контрол | Опции | Методы | Колбэк |
+|---|---|---|---|
+| `CreateButton` | `Name`, `Callback` | | `()` |
+| `CreateToggle` | `CurrentValue` (или `Default`) | `Get()`, `Set(bool)` | `(value)` |
+| `CreateSlider` | `Range = {min, max}`, `Increment = 1`, `Suffix`, `CurrentValue` | `Get()`, `Set(n)` | `(value)` |
+| `CreateDropdown` | `Options`, `CurrentOption`, `Multi` (`MultipleOptions`), `Search` | `Get()`, `Set(v)`, `Refresh(options, keepSelection)`, `SetOpen(bool)` | `(value)`, у `Multi` — список |
+| `CreateChecklist` | `Options`, `CurrentValue` (список) | `Get()`, `Set(list)` | `(list)` |
+| `CreateKeybind` | `CurrentKeybind` (имя или EnumItem) | `Get()` (имя клавиши или `"None"`), `Set(key)` | `Callback(key)` при нажатии, `ChangedCallback(key)` при смене |
+| `CreateInput` | `CurrentValue`, `PlaceholderText`, `RemoveTextAfterFocusLost` | `Get()`, `Set(text)` | `(text, enterPressed)` |
+| `CreateLabel` | строка или `{ Text }` | `Set(text)` | |
+| `CreateParagraph` | `Title`, `Content` | `Set(string \| { Title, Content })` | |
+| `CreateDivider` | | | |
+
+Детали поведения:
+
+- Слайдер зажимает значение в диапазон и округляет до `Increment`. Число можно ввести руками, строки с числом принимаются, мусор игнорируется. Нулевой или отрицательный `Increment` заменяется на `1`, перевёрнутый `Range` разворачивается.
+- Клавиша в `CreateKeybind` после клика на кнопку ждёт нажатия. `Escape` и `Backspace` снимают привязку.
+- `Dropdown:Refresh(newOptions, true)` сохраняет только те выбранные значения, что остались в новом списке.
+- Метки (`CreateLabel`) переносят длинный текст.
+
+## Флаги и конфиги
+
+```lua
+Library:GetFlag("autofarm")            -- текущее значение или nil
+local json = Library:ExportConfig()    -- JSON-строка
+local tbl  = Library:ExportConfig(true)-- таблица { flag = value }
+Library:ImportConfig(json)             -- принимает строку или таблицу, возвращает true | false, причина
+```
+
+Неизвестные флаги при импорте пропускаются. Импорт вызывает колбэки, как обычный `Set`.
+
+Сохранение на диск (нужны `writefile`/`readfile` в экзекьюторе, файлы лежат в `CrystallUI/configs/<имя>.json`):
+
+```lua
+Library:SaveConfig("legit")   -- true | false, причина
+Library:LoadConfig("legit")
+Library:ListConfigs()         -- { "legit", ... }
+```
+
+Без файлового API методы возвращают `false` и текст причины, ничего не падает. Недопустимые символы в имени заменяются на `_`.
+
+## Темы
+
+```lua
+Library:SetPalette("RoyalTopaz")          -- сменит и профиль анимации на дефолтный для палитры
+Library:SetPalette("RoyalTopaz", true)    -- оставить текущую анимацию
+Library:SetMotion("Brutal")
+Library:SetTheme({ Palette = "Emerald", Motion = "Minimal" })
+```
+
+Встроенные палитры: `Amethyst` (по умолчанию), `RoyalTopaz`, `Emerald`, `Quartz` (светлая).
+Профили анимации: `Minimal`, `Brutal`, `Instant` (без анимации).
+Неизвестное имя вызывает ошибку. Смена палитры плавно перекрашивает все живые элементы.
+
+Свои палитры и профили наследуют недостающие ключи от дефолтных, значения проверяются:
+
+```lua
+Library:RegisterPalette("Rose", {
+	Accent = Color3.fromRGB(244, 114, 182),
+	AccentText = Color3.fromRGB(40, 8, 24),
+})
+Library:RegisterMotion("Slow", { Duration = 0.6, Fast = 0.3 })
+```
+
+Ключи палитры (все `Color3`): `Background`, `Surface`, `Elevated`, `Stroke`, `Accent`, `AccentText`, `Text`, `SubText`, `Success`, `Warning`, `Error`, `Info`. Плюс необязательный `DefaultMotion` (строка).
+Ключи профиля: `Duration`, `Fast`, `Style`, `Direction`, `ColorStyle`, `Scale`, `Offset`.
+
+Прочее: `Library.Theme:Get(key)`, `:ListPalettes()`, `:ListMotions()`, `:OnChanged(fn)` (колбэк получает `"Palette" | "Motion"` и имя, возвращает объект с `Disconnect()`).
+
+Для своих инстансов используй `Library.Core.New` с полем `Theme`:
+
+```lua
+local Core = Library.Core
+Core.New("Frame", { Theme = { BackgroundColor3 = "Surface" }, Parent = somewhere })
+Core.New("TextLabel", { Theme = { TextColor3 = function(p) return flag and p.Accent or p.Text end }, Parent = somewhere })
+```
+
+Значение привязки: имя ключа палитры или функция `palette -> value`. Привязка снимается сама при `Destroy` инстанса.
+
+## Уведомления
+
+```lua
+local handle = Library:Notify({
+	Title = "Update",
+	Content = "A new version is available.",
+	Type = "Warning",        -- Info | Success | Warning | Error, влияет на цвет
+	Duration = 5,            -- секунды; 0 или false: не исчезает само
+	Actions = {
+		{ Name = "Update", Callback = function() end },
+		{ Name = "Later" },
+	},
+})
+handle:Close()
+```
+
+`Library:Notify("просто текст")` тоже работает. Одновременно видно `Library.Notifications.Max` штук (по умолчанию 4), остальные ждут в очереди. Закрытие уведомления из очереди просто выкидывает его. Первая кнопка в `Actions` подсвечивается акцентом, любая кнопка закрывает уведомление.
+
+## Жизненный цикл
+
+`Library:Destroy()` закрывает все окна, уведомления, отключает все подключения, сбрасывает флаги и биндинги темы.
+`Window:Destroy()` убирает только своё окно. Если нужен только один контрол, `api:Destroy()`.
+
+## Запуск тестов
+
+**В игре (экзекьютор).** Набор использует только публичный API и работает с настоящим UI. Запускай в чистой сессии: в конце он вызывает `Library:Destroy()`.
+
+```lua
+local Library = loadstring(game:HttpGet(REPO .. "Init.luau"))()
+loadstring(game:HttpGet(REPO .. "Tests.luau"))()(Library)
+```
+
+Результат печатается в консоль, в конце возвращается `{ Passed, Failed, Failures }`.
+
+**Headless (без Roblox).** Нужен бинарник `luau` в PATH ([релизы](https://github.com/luau-lang/luau/releases)) и Python 3:
+
+```
+python3 tests/run.py
+```
+
+Раннер собирает все модули в один скрипт, грузит их через `Config.Loader` поверх мока Roblox API (`tests/mock_roblox.luau`), гоняет `Tests.luau` и дополнительные интерактивные тесты (`tests/headless_extra.luau`: клики, драг слайдера, ввод клавиш, поиск, перетаскивание окна).
+Мок не движок: твины применяют конечное значение, размеры не считаются. Он ловит логические и рантайм-ошибки, но верстку не проверяет.
+
+## Что изменено в этой версии
+
+Исправлено:
+
+- Утечка памяти в движке тем: привязки цветов держали элементы живыми после `Destroy`. Теперь снимаются по `Destroying`.
+- `api:Destroy()` не убирал элемент из Maid окна, список рос при каждом пересоздании контролов.
+- `Init`: ошибка при выполнении модуля оставляла его в состоянии «загружается», все следующие попытки падали с ложным `Circular import`.
+- Уведомления: проверка живого контейнера смотрела на `Parent`, который у уничтоженного `ScreenGui` остаётся прежним, поэтому после его удаления уведомления пропадали. Теперь проверяется `IsDescendantOf(game)`. `Duration = 0` и `math.huge` ломали твин прогресс-бара, теперь это «не исчезать». Таймер отменяется при ручном закрытии.
+- Слайдер: на тач-устройствах страница скроллилась под пальцем при перетаскивании; нулевой `Increment` давал `NaN`; перевёрнутый `Range` ломал расчёты.
+- Окно можно было утащить за экран без возможности вернуть.
+- Индикатор активной вкладки рисовался поверх поиска, если вкладка уехала за край списка.
+- Длинные `CreateLabel` вылезали за границы.
+- `Window:CreateTab` и `Tab:CreateSection` падали при `nil` вместо имени.
+
+Добавлено: `Window:SelectTab`, `Section:SetTitle`, `ToggleKey = false`, `Library:SaveConfig/LoadConfig/ListConfigs`, `Theme:ListPalettes/ListMotions`, палитры `Emerald` и `Quartz`, профиль `Instant`, загрузка через `Config.Loader` и `Config.LocalPath`, валидация в `RegisterPalette/RegisterMotion`, предупреждение о повторных флагах, `Maid:Remove`, поддержка потоков в `Maid`.
+
+Проверено линтером `luau-analyze` и 49 тестами на моке. В живом Roblox не запускалось, так что верстку (перенос в `CreateLabel`, индикатор вкладок) стоит глянуть глазами.

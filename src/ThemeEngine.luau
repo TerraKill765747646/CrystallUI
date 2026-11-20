@@ -1,4 +1,3 @@
-local Import = ...
 local TweenService = game:GetService("TweenService")
 
 local Theme = {
@@ -43,6 +42,38 @@ Theme.Palettes.RoyalTopaz = {
 	DefaultMotion = "Brutal",
 }
 
+Theme.Palettes.Emerald = {
+	Background = Color3.fromRGB(10, 20, 18),
+	Surface = Color3.fromRGB(16, 31, 28),
+	Elevated = Color3.fromRGB(25, 46, 41),
+	Stroke = Color3.fromRGB(40, 72, 64),
+	Accent = Color3.fromRGB(52, 211, 153),
+	AccentText = Color3.fromRGB(6, 28, 20),
+	Text = Color3.fromRGB(226, 245, 238),
+	SubText = Color3.fromRGB(130, 168, 156),
+	Success = Color3.fromRGB(94, 214, 150),
+	Warning = Color3.fromRGB(255, 196, 92),
+	Error = Color3.fromRGB(255, 99, 120),
+	Info = Color3.fromRGB(120, 170, 255),
+	DefaultMotion = "Minimal",
+}
+
+Theme.Palettes.Quartz = {
+	Background = Color3.fromRGB(244, 242, 248),
+	Surface = Color3.fromRGB(255, 255, 255),
+	Elevated = Color3.fromRGB(233, 229, 242),
+	Stroke = Color3.fromRGB(207, 200, 224),
+	Accent = Color3.fromRGB(124, 77, 255),
+	AccentText = Color3.fromRGB(255, 255, 255),
+	Text = Color3.fromRGB(32, 28, 48),
+	SubText = Color3.fromRGB(104, 96, 130),
+	Success = Color3.fromRGB(22, 163, 98),
+	Warning = Color3.fromRGB(217, 140, 10),
+	Error = Color3.fromRGB(220, 53, 80),
+	Info = Color3.fromRGB(37, 99, 235),
+	DefaultMotion = "Minimal",
+}
+
 Theme.Motions.Minimal = {
 	Duration = 0.28,
 	Fast = 0.15,
@@ -61,6 +92,16 @@ Theme.Motions.Brutal = {
 	ColorStyle = Enum.EasingStyle.Linear,
 	Scale = 0.7,
 	Offset = 48,
+}
+
+Theme.Motions.Instant = {
+	Duration = 0,
+	Fast = 0,
+	Style = Enum.EasingStyle.Linear,
+	Direction = Enum.EasingDirection.Out,
+	ColorStyle = Enum.EasingStyle.Linear,
+	Scale = 1,
+	Offset = 0,
 }
 
 Theme.Current = Theme.Palettes.Amethyst
@@ -126,7 +167,15 @@ local function Emit(kind, name)
 end
 
 function Theme:Bind(inst, props)
-	local binding = Bindings[inst] or {}
+	local binding = Bindings[inst]
+	if not binding then
+		binding = {}
+		-- Binding closures usually reference the element that owns the instance, which keeps the
+		-- weak key alive. Dropping the entry on Destroying is what actually frees it.
+		inst.Destroying:Once(function()
+			Bindings[inst] = nil
+		end)
+	end
 	for k, v in props do
 		binding[k] = v
 		local value = Resolve(v)
@@ -158,6 +207,14 @@ function Theme:Refresh(inst, animate)
 			inst[k] = v
 		end
 	end
+end
+
+function Theme:_BindingCount()
+	local count = 0
+	for _ in Bindings do
+		count += 1
+	end
+	return count
 end
 
 function Theme:Get(key)
@@ -195,9 +252,16 @@ function Theme:SetTheme(cfg)
 end
 
 function Theme:RegisterPalette(name, palette)
+	assert(type(name) == "string" and name ~= "", "[CrystallUI] Palette name must be a non-empty string")
+	assert(type(palette) == "table", "[CrystallUI] Palette must be a table")
 	local new = table.clone(self.Palettes.Amethyst)
 	new.DefaultMotion = nil
 	for k, v in palette do
+		if k == "DefaultMotion" then
+			assert(type(v) == "string", "[CrystallUI] DefaultMotion must be a string")
+		else
+			assert(typeof(v) == "Color3", "[CrystallUI] Palette key '" .. tostring(k) .. "' must be a Color3")
+		end
 		new[k] = v
 	end
 	self.Palettes[name] = new
@@ -205,6 +269,8 @@ function Theme:RegisterPalette(name, palette)
 end
 
 function Theme:RegisterMotion(name, motion)
+	assert(type(name) == "string" and name ~= "", "[CrystallUI] Motion name must be a non-empty string")
+	assert(type(motion) == "table", "[CrystallUI] Motion must be a table")
 	local new = table.clone(self.Motions.Minimal)
 	for k, v in motion do
 		new[k] = v
@@ -213,7 +279,26 @@ function Theme:RegisterMotion(name, motion)
 	return new
 end
 
+function Theme:ListPalettes()
+	local names = {}
+	for name in self.Palettes do
+		table.insert(names, name)
+	end
+	table.sort(names)
+	return names
+end
+
+function Theme:ListMotions()
+	local names = {}
+	for name in self.Motions do
+		table.insert(names, name)
+	end
+	table.sort(names)
+	return names
+end
+
 function Theme:OnChanged(fn)
+	assert(type(fn) == "function", "[CrystallUI] OnChanged expects a function")
 	Listeners[fn] = true
 	return {
 		Disconnect = function()
@@ -228,4 +313,4 @@ function Theme:Clear()
 	table.clear(Listeners)
 end
 
-return Theme
+return Theme

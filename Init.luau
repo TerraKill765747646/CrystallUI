@@ -5,9 +5,25 @@ elseif type(Config) ~= "table" then
 	Config = {}
 end
 
-local REPO_URL = Config.RepoUrl or Config.REPO_URL or "https://raw.githubusercontent.com/TerraKill765747646/CrystallUI/refs/heads/main/"
+local REPO_URL = Config.RepoUrl or Config.REPO_URL or "https://raw.githubusercontent.com/USER/CrystallUI/main/"
 if REPO_URL:sub(-1) ~= "/" then
 	REPO_URL ..= "/"
+end
+
+-- Config.Loader: function(path) -> source string, replaces the HTTP fetch entirely.
+-- Config.LocalPath: folder in the executor workspace, modules are read with readfile (handy for development).
+local Loader = Config.Loader
+if Loader == nil and type(Config.LocalPath) == "string" then
+	local base = Config.LocalPath
+	if base:sub(-1) ~= "/" then
+		base ..= "/"
+	end
+	Loader = function(path)
+		return readfile(base .. path .. ".luau")
+	end
+end
+if Loader ~= nil then
+	assert(type(Loader) == "function", "[CrystallUI] Config.Loader must be a function")
 end
 
 local Cache, Loading = {}, {}
@@ -19,24 +35,27 @@ local function Import(path)
 		return cached
 	end
 	assert(not Loading[path], "[CrystallUI] Circular import: " .. path)
-Loading[path] = true
-	local url = REPO_URL .. path .. ".luau?t=" .. os.time()
-	local ok, source = pcall(game.HttpGet, game, url)
+	Loading[path] = true
+	local ok, source
+	if Loader then
+		ok, source = pcall(Loader, path)
+	else
+		ok, source = pcall(game.HttpGet, game, REPO_URL .. path .. ".luau")
+	end
 	if not ok or type(source) ~= "string" then
 		Loading[path] = nil
-		error("[CrystallUI] Failed to fetch '" .. url .. "': " .. tostring(source), 2)
-	end
-	if source:sub(1, 3) == "404" then
-		Loading[path] = nil
-		error("[CrystallUI] 404 по адресу: " .. url, 2)
+		error("[CrystallUI] Failed to fetch '" .. path .. "': " .. tostring(source), 2)
 	end
 	local fn, err = loadstring(source, "=" .. path)
 	if not fn then
 		Loading[path] = nil
 		error("[CrystallUI] Failed to compile '" .. path .. "': " .. tostring(err), 2)
 	end
-	local result = fn(Import)
+	local ran, result = pcall(fn, Import)
 	Loading[path] = nil
+	if not ran then
+		error("[CrystallUI] Runtime error in '" .. path .. "': " .. tostring(result), 2)
+	end
 	Cache[path] = if result == nil then true else result
 	return Cache[path]
 end
@@ -81,4 +100,4 @@ if Config.Theme then
 	Theme:SetTheme(Config.Theme)
 end
 
-return Library
+return Library

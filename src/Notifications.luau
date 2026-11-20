@@ -1,13 +1,13 @@
 local Import = ...
 local Core = Import("src/Core")
-local Theme, Animator, New = Core.Theme, Core.Animator, Core.New
+local Animator, New = Core.Animator, Core.New
 
 local Notifications = { Active = 0, Queue = {}, Max = 4 }
 local TypeKeys = { Info = "Info", Success = "Success", Warning = "Warning", Error = "Error" }
 local holder
 
 local function GetHolder()
-	if holder and holder.Parent then
+	if holder and holder:IsDescendantOf(game) then
 		return holder
 	end
 	local gui = Core.Library.Maid:Give(Core.CreateGui("CrystallUI_Notify", 200))
@@ -125,10 +125,18 @@ local function Show(o, handle)
 		handle:Close()
 	end)
 
+	local duration = tonumber(o.Duration)
+	if o.Duration == false or duration == 0 or duration == math.huge then
+		duration = nil -- sticky: stays until closed by the user or by code
+	else
+		duration = if duration and duration > 0 then duration else 5
+	end
+
 	local progress = New("Frame", {
 		AnchorPoint = Vector2.new(0, 1),
 		Position = UDim2.fromScale(0, 1),
 		Size = UDim2.new(1, 0, 0, 2),
+		Visible = duration ~= nil,
 		Theme = { BackgroundColor3 = key },
 		Parent = card,
 	})
@@ -142,11 +150,18 @@ local function Show(o, handle)
 
 	Animator:Tween(wrap, { Size = UDim2.new(1, 0, 0, card.AbsoluteSize.Y) })
 	Animator:Tween(card, { Position = UDim2.new() })
-	local duration = tonumber(o.Duration) or 5
-	local progressTween = Animator:Tween(progress, { Size = UDim2.new(0, 0, 0, 2) }, duration, Enum.EasingStyle.Linear)
+	local progressTween = if duration
+		then Animator:Tween(progress, { Size = UDim2.new(0, 0, 0, 2) }, duration, Enum.EasingStyle.Linear)
+		else nil
 
+	local timer
 	handle._close = function()
-		progressTween:Cancel()
+		if progressTween then
+			progressTween:Cancel()
+		end
+		if timer then
+			task.cancel(timer)
+		end
 		Animator:Tween(card, { Position = UDim2.fromOffset(340, 0) }, "Fast", Enum.EasingStyle.Quad)
 		local collapse = Animator:Tween(wrap, { Size = UDim2.new(1, 0, 0, 0) }, nil, Enum.EasingStyle.Quad)
 		collapse.Completed:Once(function()
@@ -155,9 +170,12 @@ local function Show(o, handle)
 		Release()
 	end
 
-	task.delay(duration, function()
-		handle:Close()
-	end)
+	if duration then
+		timer = task.delay(duration, function()
+			timer = nil
+			handle:Close()
+		end)
+	end
 end
 
 function Notifications:_Next()
@@ -173,7 +191,7 @@ function Notifications:Notify(o)
 	if type(o) == "string" then
 		o = { Content = o }
 	end
-	o = o or {}
+	o = if type(o) == "table" then o else {}
 	local handle = { Closed = false }
 	function handle:Close()
 		if self.Closed then
@@ -189,4 +207,4 @@ function Notifications:Notify(o)
 	return handle
 end
 
-return Notifications
+return Notifications

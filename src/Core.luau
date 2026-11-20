@@ -24,6 +24,13 @@ function Maid:Give(item)
 	return item
 end
 
+function Maid:Remove(item)
+	local index = table.find(self.Tasks, item)
+	if index then
+		table.remove(self.Tasks, index)
+	end
+end
+
 function Maid:Clean()
 	local tasks = self.Tasks
 	self.Tasks = {}
@@ -40,6 +47,8 @@ function Maid:Clean()
 			end
 		elseif kind == "function" then
 			pcall(t)
+		elseif kind == "thread" then
+			pcall(task.cancel, t)
 		elseif kind == "table" then
 			if t.Destroy then
 				pcall(t.Destroy, t)
@@ -200,6 +209,9 @@ end
 
 function Core.RegisterFlag(flag, element)
 	if flag then
+		if Library.Flags[flag] and Library.Flags[flag] ~= element then
+			warn("[CrystallUI] Flag '" .. tostring(flag) .. "' is already registered, the old element is replaced")
+		end
 		Library.Flags[flag] = element
 	end
 end
@@ -242,6 +254,58 @@ function Library:ImportConfig(data)
 	return true
 end
 
+local CONFIG_DIR = "CrystallUI/configs"
+
+local function ConfigPath(name)
+	name = tostring(name or "default"):gsub("[^%w_%-]", "_")
+	return CONFIG_DIR .. "/" .. name .. ".json"
+end
+
+function Library:SaveConfig(name)
+	if not (writefile and makefolder and isfolder) then
+		return false, "File API is not available in this environment"
+	end
+	local ok, err = pcall(function()
+		if not isfolder("CrystallUI") then
+			makefolder("CrystallUI")
+		end
+		if not isfolder(CONFIG_DIR) then
+			makefolder(CONFIG_DIR)
+		end
+		writefile(ConfigPath(name), self:ExportConfig())
+	end)
+	return ok, if ok then nil else tostring(err)
+end
+
+function Library:LoadConfig(name)
+	if not (readfile and isfile) then
+		return false, "File API is not available in this environment"
+	end
+	local path = ConfigPath(name)
+	if not isfile(path) then
+		return false, "Config not found: " .. path
+	end
+	local ok, data = pcall(readfile, path)
+	if not ok then
+		return false, tostring(data)
+	end
+	return self:ImportConfig(data)
+end
+
+function Library:ListConfigs()
+	local out = {}
+	if listfiles and isfolder and isfolder(CONFIG_DIR) then
+		for _, path in listfiles(CONFIG_DIR) do
+			local name = tostring(path):match("([^/\\]+)%.json$")
+			if name then
+				table.insert(out, name)
+			end
+		end
+	end
+	table.sort(out)
+	return out
+end
+
 local Elements = {}
 Core.Elements = Elements
 
@@ -270,7 +334,7 @@ function Library:CreateWindow(o)
 		Maid = Maid.new(),
 		Visible = true,
 		Minimized = false,
-		ToggleKey = Core.ToKey(o.ToggleKey) or Enum.KeyCode.RightShift,
+		ToggleKey = if o.ToggleKey == false then nil else (Core.ToKey(o.ToggleKey) or Enum.KeyCode.RightShift),
 		Size = size,
 	}, Window)
 	local maid = win.Maid
@@ -409,7 +473,16 @@ function Library:CreateWindow(o)
 	maid:Give(UserInputService.InputChanged:Connect(function(input)
 		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
 			local delta = input.Position - dragStart
-			main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+			local viewport = gui.AbsoluteSize
+			local half = main.AbsoluteSize / 2
+			local cx = viewport.X * startPos.X.Scale + startPos.X.Offset + delta.X
+			local cy = viewport.Y * startPos.Y.Scale + startPos.Y.Offset + delta.Y
+			-- keep the title bar reachable: it can't leave the screen
+			cx = math.clamp(cx, 40, math.max(40, viewport.X - 40))
+			cy = math.clamp(cy, half.Y, math.max(half.Y, viewport.Y - 42 + half.Y))
+			local x = cx - viewport.X * startPos.X.Scale
+			local y = cy - viewport.Y * startPos.Y.Scale
+			main.Position = UDim2.new(startPos.X.Scale, x, startPos.Y.Scale, y)
 		end
 	end))
 	maid:Give(UserInputService.InputEnded:Connect(function(input)
@@ -443,7 +516,14 @@ function Window:_UpdateIndicator(animate)
 		return
 	end
 	local button = tab.Button
-	local y = button.AbsolutePosition.Y - self.Sidebar.AbsolutePosition.Y + (button.AbsoluteSize.Y - 18) / 2
+	local list = self.TabList
+	local top = button.AbsolutePosition.Y
+	local bottom = top + button.AbsoluteSize.Y
+	if bottom < list.AbsolutePosition.Y or top > list.AbsolutePosition.Y + list.AbsoluteSize.Y then
+		Animator:Tween(indicator, { BackgroundTransparency = 1 }, "Fast")
+		return
+	end
+	local y = top - self.Sidebar.AbsolutePosition.Y + (button.AbsoluteSize.Y - 18) / 2
 	local position = UDim2.fromOffset(4, y)
 	if animate then
 		Animator:Tween(indicator, { Position = position })
@@ -498,8 +578,29 @@ function Window:Destroy()
 	end
 end
 
+function Window:SelectTab(target)
+	if type(target) == "number" then
+		target = self.Tabs[target]
+	elseif type(target) == "string" then
+		local found
+		for _, tab in self.Tabs do
+			if tab.Name == target then
+				found = tab
+				break
+			end
+		end
+		target = found
+	end
+	if target and getmetatable(target) == Tab then
+		target:Select()
+		return target
+	end
+	return nil
+end
+
 function Window:CreateTab(name, icon)
 	local New = Core.New
+	name = tostring(name or "Tab")
 	local tab = setmetatable({ Name = name, Window = self, Sections = {} }, Tab)
 	local button = New("TextButton", {
 		Text = "",
@@ -569,6 +670,7 @@ end
 
 function Tab:CreateSection(name, o)
 	o = o or {}
+	name = tostring(name or "")
 	local New = Core.New
 	local section = setmetatable({ Name = name, Tab = self, Window = self.Window, Collapsed = false }, Section)
 	local frame = New("Frame", {
@@ -587,7 +689,7 @@ function Tab:CreateSection(name, o)
 		LayoutOrder = 0,
 		Parent = frame,
 	})
-	Core.Text({
+	section.Title = Core.Text({
 		Text = string.upper(name),
 		Font = Enum.Font.GothamBold,
 		TextSize = 11,
@@ -632,6 +734,10 @@ function Tab:CreateSection(name, o)
 	return section
 end
 
+function Section:SetTitle(text)
+	self.Title.Text = string.upper(tostring(text))
+end
+
 function Section:SetCollapsed(state)
 	self.Collapsed = state == true
 	if self._apply then
@@ -640,6 +746,10 @@ function Section:SetCollapsed(state)
 end
 
 function Section:Destroy()
+	local index = table.find(self.Tab.Sections, self)
+	if index then
+		table.remove(self.Tab.Sections, index)
+	end
 	self.Frame:Destroy()
 end
 
@@ -652,4 +762,4 @@ function Library:Destroy()
 	table.clear(self.Flags)
 end
 
-return Core
+return Core
