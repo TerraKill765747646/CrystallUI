@@ -21,13 +21,6 @@ tests/               мок Roblox API и раннер для headless-прог�
 local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/TerraKill765747646/CrystallUI/main/Init.luau"))()
 ```
 
-По умолчанию модули берутся из `TerraKill765747646/CrystallUI` (ветка `main`). Если репозиторий лежит в другом месте, передай адрес явно:
-
-```lua
-local Library = loadstring(game:HttpGet(INIT_URL))("https://example.com/crystall/")          -- строка = RepoUrl
-local Library = loadstring(game:HttpGet(INIT_URL))({ RepoUrl = "https://example.com/crystall/" })
-```
-
 ### Параметры загрузки
 
 | Поле | Что делает |
