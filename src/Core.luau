@@ -8,7 +8,7 @@ local HttpService = game:GetService("HttpService")
 local CoreGui = game:GetService("CoreGui")
 
 local Core = { Theme = Theme, Animator = Animator, UIS = UserInputService }
-local Library = { Flags = {}, Windows = {}, Theme = Theme, Version = "1.0.0" }
+local Library = { Flags = {}, Windows = {}, Modals = {}, Theme = Theme, Version = "1.1.0" }
 Core.Library = Library
 
 local Maid = {}
@@ -224,13 +224,15 @@ end
 function Library:ExportConfig(asTable)
 	local data = {}
 	for flag, element in self.Flags do
-		if element.Get then
-			local ok, value = pcall(element.Get, element)
+		local getter = element.Export or element.Get
+		if getter then
+			local ok, value = pcall(getter, element)
 			if ok then
 				data[flag] = value
 			end
 		end
 	end
+	data.__theme = { Palette = Theme.PaletteName, Motion = Theme.MotionName }
 	return if asTable then data else HttpService:JSONEncode(data)
 end
 
@@ -245,13 +247,267 @@ function Library:ImportConfig(data)
 	if type(data) ~= "table" then
 		return false, "Invalid config"
 	end
+	-- the theme goes first so elements that are recoloured by Set pick up the right palette
+	if type(data.__theme) == "table" then
+		pcall(Theme.SetTheme, Theme, { Palette = data.__theme.Palette, Motion = data.__theme.Motion })
+	end
 	for flag, value in data do
 		local element = self.Flags[flag]
-		if element and element.Set then
+		if flag ~= "__theme" and element and element.Set then
 			pcall(element.Set, element, value)
 		end
 	end
 	return true
+end
+
+----------------------------------------------------------------------------------------------------
+-- Helpers shared by dialogs, the key system and controls
+----------------------------------------------------------------------------------------------------
+
+-- Yields the calling thread until `resolve(...)` is called, returns what it was called with.
+-- Works even if resolve fires before the yield (synchronously).
+function Core.Await(start)
+	local thread = coroutine.running()
+	local done, result, waiting = false, nil, false
+	start(function(...)
+		if done then
+			return
+		end
+		done, result = true, table.pack(...)
+		if waiting then
+			task.spawn(thread, ...)
+		end
+	end)
+	if done then
+		return table.unpack(result, 1, result.n)
+	end
+	waiting = true
+	return coroutine.yield()
+end
+
+function Core.Button(parent, text, style, props)
+	local bg, fg = "Elevated", "Text"
+	if style == "Primary" then
+		bg, fg = "Accent", "AccentText"
+	elseif style == "Danger" then
+		bg, fg = "Error", "AccentText"
+	end
+	local button = Core.New("TextButton", {
+		Text = text,
+		Font = Enum.Font.GothamMedium,
+		TextSize = 13,
+		AutoButtonColor = false,
+		Size = UDim2.new(1, 0, 0, 36),
+		Theme = { BackgroundColor3 = bg, TextColor3 = fg },
+		Parent = parent,
+	})
+	Core.Corner(button, 8)
+	button.MouseEnter:Connect(function()
+		Animator:Tween(button, { BackgroundTransparency = 0.15 }, "Fast")
+	end)
+	button.MouseLeave:Connect(function()
+		Animator:Tween(button, { BackgroundTransparency = 0 }, "Fast")
+	end)
+	for k, v in props or {} do
+		button[k] = v
+	end
+	return button
+end
+
+-- Centered card over a dimmed screen. Content goes into modal.Body.
+function Core.CreateModal(o)
+	o = o or {}
+	local New = Core.New
+	local maid = Maid.new()
+	local modal = { Maid = maid, Closed = false, OnClose = o.OnClose }
+
+	local gui = maid:Give(Core.CreateGui("CrystallUI_Modal", 150))
+	local dim = New("TextButton", {
+		Text = "",
+		AutoButtonColor = false,
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		Theme = { BackgroundColor3 = "Background" },
+		Parent = gui,
+	})
+	local card = New("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(o.Width or 340, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		Theme = { BackgroundColor3 = "Surface" },
+		Parent = dim,
+	})
+	Core.Corner(card, 12)
+	Core.Stroke(card)
+	local scale = New("UIScale", { Parent = card })
+
+	local inner = New("Frame", {
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		Parent = card,
+	})
+	Core.Padding(inner, 24, 22, 22, 22)
+	local list = Core.List(inner, 12)
+	list.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+	local badge = New("Frame", {
+		Size = UDim2.fromOffset(48, 48),
+		LayoutOrder = 1,
+		Theme = { BackgroundColor3 = "Elevated" },
+		Parent = inner,
+	})
+	Core.Corner(badge, 24)
+	Core.Stroke(badge, "Accent", 2)
+	Core.Text({
+		Text = o.Icon or "◆",
+		Font = Enum.Font.GothamBold,
+		TextSize = 22,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Size = UDim2.fromScale(1, 1),
+		Theme = { TextColor3 = "Accent" },
+		Parent = badge,
+	})
+	Core.Text({
+		Text = o.Title or "",
+		Font = Enum.Font.GothamBold,
+		TextSize = 18,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextWrapped = true,
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		LayoutOrder = 2,
+		Parent = inner,
+	})
+	if o.Subtitle and o.Subtitle ~= "" then
+		Core.Text({
+			Text = o.Subtitle,
+			TextSize = 13,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			TextWrapped = true,
+			Size = UDim2.new(1, 0, 0, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			LayoutOrder = 3,
+			Theme = { TextColor3 = "SubText" },
+			Parent = inner,
+		})
+	end
+	local body = New("Frame", {
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		LayoutOrder = 4,
+		Parent = inner,
+	})
+	Core.List(body, 10)
+
+	if o.Closable ~= false then
+		local close = New("TextButton", {
+			Text = "×",
+			Font = Enum.Font.GothamBold,
+			TextSize = 18,
+			AutoButtonColor = false,
+			BackgroundTransparency = 1,
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -8, 0, 8),
+			Size = UDim2.fromOffset(24, 24),
+			ZIndex = 3,
+			Theme = { TextColor3 = "SubText" },
+			Parent = card,
+		})
+		maid:Give(close.MouseButton1Click:Connect(function()
+			modal:Close()
+		end))
+	end
+
+	modal.Gui, modal.Card, modal.Body, modal.Dim = gui, card, body, dim
+	Library.Modals[modal] = true
+
+	scale.Scale = Theme.Motion.Scale
+	Animator:Tween(scale, { Scale = 1 })
+	Animator:Tween(dim, { BackgroundTransparency = 0.4 })
+
+	function modal:Close()
+		if self.Closed then
+			return
+		end
+		self.Closed = true
+		Library.Modals[self] = nil
+		Animator:Tween(dim, { BackgroundTransparency = 1 }, "Fast")
+		local out = Animator:Tween(scale, { Scale = Theme.Motion.Scale }, "Fast", Enum.EasingStyle.Quad)
+		out.Completed:Once(function()
+			maid:Clean()
+		end)
+		Core.Fire(self.OnClose)
+	end
+
+	function modal:Shake()
+		task.spawn(function()
+			for _, dx in { 10, -10, 6, -6, 0 } do
+				if self.Closed then
+					return
+				end
+				Animator:Tween(card, { Position = UDim2.new(0.5, dx, 0.5, 0) }, 0.05, Enum.EasingStyle.Quad)
+				task.wait(0.05)
+			end
+		end)
+	end
+
+	return modal
+end
+
+-- Library:Dialog({ Title, Content, Icon, Width, Closable, OnClose, Buttons = { { Name, Callback, Style, Keep } } })
+function Library:Dialog(o)
+	o = o or {}
+	local modal = Core.CreateModal({
+		Title = o.Title or "Notice",
+		Subtitle = o.Content,
+		Icon = o.Icon,
+		Width = o.Width,
+		Closable = o.Closable,
+		OnClose = o.OnClose,
+	})
+	local buttons = o.Buttons
+	if type(buttons) ~= "table" or #buttons == 0 then
+		buttons = { { Name = "OK" } }
+	end
+	local count = #buttons
+	local row = Core.New("Frame", { Size = UDim2.new(1, 0, 0, 36), BackgroundTransparency = 1, LayoutOrder = 100, Parent = modal.Body })
+	Core.List(row, 8, Enum.FillDirection.Horizontal)
+	for i, spec in buttons do
+		local style = spec.Style or (if i == count then "Primary" else "Default")
+		local button = Core.Button(row, spec.Name or "OK", style, {
+			Size = UDim2.new(1 / count, -8 * (count - 1) / count, 1, 0),
+			LayoutOrder = i,
+		})
+		button.MouseButton1Click:Connect(function()
+			Core.Fire(spec.Callback)
+			if not spec.Keep then
+				modal:Close()
+			end
+		end)
+	end
+	return modal
+end
+
+-- Blocking yes/no prompt, returns true or false. Must be called from a thread that may yield.
+function Library:Confirm(o)
+	o = o or {}
+	return Core.Await(function(resolve)
+		self:Dialog({
+			Title = o.Title or "Are you sure?",
+			Content = o.Content,
+			Icon = o.Icon,
+			OnClose = function()
+				resolve(false)
+			end,
+			Buttons = {
+				{ Name = o.No or "Cancel", Callback = function() resolve(false) end },
+				{ Name = o.Yes or "Confirm", Style = if o.Danger then "Danger" else "Primary", Callback = function() resolve(true) end },
+			},
+		})
+	end)
 end
 
 local CONFIG_DIR = "CrystallUI/configs"
@@ -322,6 +578,109 @@ local function IsPointer(input)
 end
 Core.IsPointer = IsPointer
 
+-- Floating round button that shows/hides the window. Built for touch devices where there is no
+-- toggle key: tap toggles, drag moves it, on release it snaps to the nearest screen edge.
+local DRAG_THRESHOLD = 8
+
+local function BuildToggleButton(win, o)
+	local setting = o.MobileButton
+	if setting == nil then
+		setting = UserInputService.TouchEnabled
+	end
+	if not setting then
+		return
+	end
+
+	local gui, maid = win.Gui, win.Maid
+	local size, margin = 46, 12
+	local side, curY, snap = "left", nil, nil
+
+	local button = Core.New("TextButton", {
+		Name = "ToggleButton",
+		Text = o.ToggleIcon or "◆",
+		Font = Enum.Font.GothamBold,
+		TextSize = 20,
+		AutoButtonColor = false,
+		Position = UDim2.new(0, margin, 0.4, 0),
+		Size = UDim2.fromOffset(size, size),
+		ZIndex = 20,
+		Theme = { BackgroundColor3 = "Surface", TextColor3 = "Accent" },
+		Parent = gui,
+	})
+	Core.Corner(button, size / 2)
+	Core.Stroke(button, "Accent", 2)
+	local scale = Core.New("UIScale", { Parent = button })
+	win.ToggleButton = button
+
+	local function EdgeX()
+		return if side == "left" then margin else math.max(margin, gui.AbsoluteSize.X - size - margin)
+	end
+	local function ClampY(y)
+		return math.clamp(y, margin, math.max(margin, gui.AbsoluteSize.Y - size - margin))
+	end
+
+	local dragging, moved, startInput, startX, startY, curX = false, false, nil, 0, 0, 0
+	maid:Give(button.InputBegan:Connect(function(input)
+		if not IsPointer(input) or dragging then
+			return
+		end
+		if snap then
+			snap:Cancel()
+			snap = nil
+		end
+		local abs = button.AbsolutePosition
+		dragging, moved, startInput, startX, startY = true, false, input.Position, abs.X, abs.Y
+		curX, curY = abs.X, abs.Y
+		Animator:Tween(scale, { Scale = 0.9 }, "Fast")
+	end))
+	maid:Give(UserInputService.InputChanged:Connect(function(input)
+		if not dragging then
+			return
+		end
+		if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then
+			return
+		end
+		local delta = input.Position - startInput
+		if not moved then
+			if math.sqrt(delta.X ^ 2 + delta.Y ^ 2) < DRAG_THRESHOLD then
+				return
+			end
+			moved = true
+			Animator:Tween(scale, { Scale = 1.1 }, "Fast")
+		end
+		local view = gui.AbsoluteSize
+		curX = math.clamp(startX + delta.X, margin, math.max(margin, view.X - size - margin))
+		curY = ClampY(startY + delta.Y)
+		button.Position = UDim2.fromOffset(curX, curY)
+	end))
+	maid:Give(UserInputService.InputEnded:Connect(function(input)
+		if not dragging or not IsPointer(input) then
+			return
+		end
+		dragging = false
+		Animator:Tween(scale, { Scale = 1 }, "Fast")
+		if not moved then
+			win:Toggle()
+			return
+		end
+		side = if curX + size / 2 < gui.AbsoluteSize.X / 2 then "left" else "right"
+		snap = Animator:Tween(button, { Position = UDim2.fromOffset(EdgeX(), curY) })
+	end))
+	-- keep it reachable when the viewport changes (rotation, window resize)
+	maid:Give(gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+		if curY then
+			if snap then
+				snap:Cancel()
+				snap = nil
+			end
+			curY = ClampY(curY)
+			button.Position = UDim2.fromOffset(EdgeX(), curY)
+		end
+	end))
+
+	win:_UpdateToggleButton()
+end
+
 function Library:CreateWindow(o)
 	o = o or {}
 	if o.Theme then
@@ -331,6 +690,7 @@ function Library:CreateWindow(o)
 	local size = o.Size or UDim2.fromOffset(560, 380)
 	local win = setmetatable({
 		Tabs = {},
+		Popups = {},
 		Maid = Maid.new(),
 		Visible = true,
 		Minimized = false,
@@ -355,20 +715,34 @@ function Library:CreateWindow(o)
 
 	local top = New("Frame", { Name = "TopBar", Size = UDim2.new(1, 0, 0, 42), BackgroundTransparency = 1, Parent = main })
 	local hasSub = o.Subtitle ~= nil
+	local icon = if o.Icon == false then nil else (o.Icon or "◆")
+	local textX = if icon then 38 else 16
+	if icon then
+		Core.Text({
+			Text = icon,
+			Font = Enum.Font.GothamBold,
+			TextSize = 17,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			Position = UDim2.fromOffset(12, 0),
+			Size = UDim2.fromOffset(22, 42),
+			Theme = { TextColor3 = "Accent" },
+			Parent = top,
+		})
+	end
 	Core.Text({
 		Text = o.Name or "Crystall UI",
 		Font = Enum.Font.GothamBold,
 		TextSize = 15,
-		Position = UDim2.fromOffset(16, hasSub and 6 or 0),
-		Size = UDim2.new(1, -110, 0, hasSub and 18 or 42),
+		Position = UDim2.fromOffset(textX, hasSub and 6 or 0),
+		Size = UDim2.new(1, -(textX + 94), 0, hasSub and 18 or 42),
 		Parent = top,
 	})
 	if hasSub then
 		Core.Text({
 			Text = o.Subtitle,
 			TextSize = 12,
-			Position = UDim2.fromOffset(16, 23),
-			Size = UDim2.new(1, -110, 0, 14),
+			Position = UDim2.fromOffset(textX, 23),
+			Size = UDim2.new(1, -(textX + 94), 0, 14),
 			Theme = { TextColor3 = "SubText" },
 			Parent = top,
 		})
@@ -392,6 +766,22 @@ function Library:CreateWindow(o)
 	local closeButton = TopButton("×", -10)
 	local minButton = TopButton("–", -42)
 	New("Frame", { Position = UDim2.fromOffset(0, 42), Size = UDim2.new(1, 0, 0, 1), Theme = { BackgroundColor3 = "Stroke" }, Parent = main })
+	-- accent line that fades into the divider
+	local glow = New("Frame", {
+		Position = UDim2.fromOffset(0, 41),
+		Size = UDim2.new(1, 0, 0, 2),
+		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+		ZIndex = 2,
+		Parent = main,
+	})
+	New("UIGradient", {
+		Theme = {
+			Color = function(p)
+				return ColorSequence.new(p.Accent, p.Stroke)
+			end,
+		},
+		Parent = glow,
+	})
 
 	local body = New("Frame", { Name = "Body", Position = UDim2.fromOffset(0, 43), Size = UDim2.new(1, 0, 1, -43), BackgroundTransparency = 1, Parent = main })
 	local sidebar = New("Frame", { Size = UDim2.new(0, 160, 1, 0), Theme = { BackgroundColor3 = "Surface" }, Parent = body })
@@ -449,6 +839,7 @@ function Library:CreateWindow(o)
 	win.Gui, win.Main, win.Scale, win.Body = gui, main, scale, body
 	win.Sidebar, win.TabList, win.Indicator, win.Content = sidebar, tabList, indicator, content
 	win.MinButton = minButton
+	BuildToggleButton(win, o)
 
 	maid:Give(tabList:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
 		win:_UpdateIndicator(false)
@@ -533,6 +924,31 @@ function Window:_UpdateIndicator(animate)
 	Animator:Tween(indicator, { BackgroundTransparency = 0 }, "Fast")
 end
 
+function Window:_UpdateToggleButton()
+	local button = self.ToggleButton
+	if button then
+		-- slightly see-through while the window is open, solid when it is hidden
+		Animator:Tween(button, { BackgroundTransparency = if self.Visible then 0.35 else 0 }, "Fast")
+	end
+end
+
+-- dropdowns and pickers register themselves here so they can be closed together
+function Window:_ClosePopups(except)
+	for api, close in table.clone(self.Popups) do
+		if api ~= except then
+			close()
+		end
+	end
+end
+
+function Window:SetMobileButton(state)
+	if self.ToggleButton then
+		self.ToggleButton.Visible = state == true
+	elseif state then
+		BuildToggleButton(self, { MobileButton = true })
+	end
+end
+
 function Window:Toggle(state)
 	if state == nil then
 		state = not self.Visible
@@ -541,6 +957,10 @@ function Window:Toggle(state)
 		return
 	end
 	self.Visible = state
+	self:_UpdateToggleButton()
+	if not state then
+		self:_ClosePopups()
+	end
 	local motion = Theme.Motion
 	if state then
 		self.Main.Visible = true
@@ -561,6 +981,9 @@ function Window:Minimize(state)
 		state = not self.Minimized
 	end
 	self.Minimized = state
+	if state then
+		self:_ClosePopups()
+	end
 	self.MinButton.Text = state and "+" or "–"
 	local size = self.Size
 	Animator:Tween(self.Main, { Size = if state then UDim2.new(size.X.Scale, size.X.Offset, 0, 42) else size })
@@ -641,6 +1064,16 @@ function Window:CreateTab(name, icon)
 	self.Maid:Give(button.MouseButton1Click:Connect(function()
 		tab:Select()
 	end))
+	self.Maid:Give(button.MouseEnter:Connect(function()
+		if self.Selected ~= tab then
+			Animator:Tween(button, { BackgroundTransparency = 0.6 }, "Fast")
+		end
+	end))
+	self.Maid:Give(button.MouseLeave:Connect(function()
+		if self.Selected ~= tab then
+			Animator:Tween(button, { BackgroundTransparency = 1 }, "Fast")
+		end
+	end))
 	table.insert(self.Tabs, tab)
 	if not self.Selected then
 		tab:Select()
@@ -655,6 +1088,7 @@ function Tab:Select()
 		return
 	end
 	win.Selected = self
+	win:_ClosePopups()
 	if previous then
 		previous.Page.Visible = false
 		Animator:Tween(previous.Button, { BackgroundTransparency = 1 }, "Fast")
@@ -689,11 +1123,19 @@ function Tab:CreateSection(name, o)
 		LayoutOrder = 0,
 		Parent = frame,
 	})
+	New("Frame", {
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(0, 0, 0.5, 0),
+		Size = UDim2.fromOffset(3, 11),
+		Theme = { BackgroundColor3 = "Accent" },
+		Parent = header,
+	})
 	section.Title = Core.Text({
 		Text = string.upper(name),
 		Font = Enum.Font.GothamBold,
 		TextSize = 11,
-		Size = UDim2.new(1, -24, 1, 0),
+		Position = UDim2.fromOffset(10, 0),
+		Size = UDim2.new(1, -34, 1, 0),
 		Theme = { TextColor3 = "SubText" },
 		Parent = header,
 	})
@@ -756,6 +1198,11 @@ end
 function Library:Destroy()
 	for i = #self.Windows, 1, -1 do
 		self.Windows[i]:Destroy()
+	end
+	for modal in table.clone(self.Modals) do
+		modal.OnClose = nil
+		modal:Close()
+		modal.Maid:Clean()
 	end
 	self.Maid:Clean()
 	Theme:Clear()

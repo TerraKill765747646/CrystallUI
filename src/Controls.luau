@@ -38,6 +38,30 @@ local function Element(self, row, title, o, api)
 	function api:SetVisible(state)
 		row.Visible = state
 	end
+	-- translucent cover that swallows input while the element is locked
+	local shield = New("TextButton", {
+		Text = "",
+		AutoButtonColor = false,
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 0.45,
+		Visible = false,
+		ZIndex = 30,
+		Theme = { BackgroundColor3 = "Background" },
+		Parent = row,
+	})
+	Core.Corner(shield, 6)
+	api.Locked = false
+	function api:SetLocked(state)
+		self.Locked = state == true
+		shield.Visible = self.Locked
+		if self.Locked and self.SetOpen then
+			self:SetOpen(false)
+		end
+	end
+	if o.Locked then
+		api:SetLocked(true)
+	end
+
 	local windowMaid = self.Window.Maid
 	function api:Destroy()
 		windowMaid:Remove(self)
@@ -89,6 +113,85 @@ local function SmallBox(class, props)
 	local inst = New(class, base)
 	Core.Corner(inst, 5)
 	return inst
+end
+
+-- A panel that floats above the window (so it is never clipped by the scrolling page) and sits
+-- under its row. Closes on outside click, on tab switch and when the window hides.
+local function Popup(self, row, api, maid)
+	local win = self.Window
+	local gui = win.Gui
+	local frame = New("Frame", {
+		Visible = false,
+		ClipsDescendants = true,
+		ZIndex = 50,
+		Size = UDim2.fromOffset(0, 0),
+		Theme = { BackgroundColor3 = "Surface" },
+		Parent = gui,
+	})
+	Core.Corner(frame, 8)
+	Core.Stroke(frame, "Accent")
+	maid:Give(frame)
+
+	local pop = { Frame = frame, Height = 0 }
+
+	local function Geometry()
+		local abs, size, view = row.AbsolutePosition, row.AbsoluteSize, gui.AbsoluteSize
+		local y = abs.Y + size.Y + 4
+		if y + pop.Height > view.Y - 8 and abs.Y - pop.Height - 4 > 8 then
+			y = abs.Y - pop.Height - 4 -- not enough room below, flip above
+		end
+		return UDim2.fromOffset(abs.X, y), size.X
+	end
+
+	function pop:Update(open)
+		if open then
+			local position, width = Geometry()
+			local target = UDim2.fromOffset(width, self.Height)
+			frame.Position = position
+			if not frame.Visible then
+				frame.Size = UDim2.fromOffset(width, 0)
+				frame.Visible = true
+			end
+			Animator:Tween(frame, { Size = target })
+		else
+			local width = row.AbsoluteSize.X
+			local tween = Animator:Tween(frame, { Size = UDim2.fromOffset(width, 0) }, "Fast", Enum.EasingStyle.Quad)
+			tween.Completed:Once(function(state)
+				if not api.Open and state == Enum.PlaybackState.Completed then
+					frame.Visible = false
+				end
+			end)
+		end
+	end
+
+	win.Popups[api] = function()
+		api:SetOpen(false)
+	end
+	maid:Give(function()
+		win.Popups[api] = nil
+	end)
+
+	local function Follow()
+		if api.Open then
+			local position, width = Geometry()
+			frame.Position = position
+			frame.Size = UDim2.fromOffset(width, pop.Height)
+		end
+	end
+	maid:Give(row:GetPropertyChangedSignal("AbsolutePosition"):Connect(Follow))
+	maid:Give(row:GetPropertyChangedSignal("AbsoluteSize"):Connect(Follow))
+
+	local function Inside(inst, p)
+		local a, s = inst.AbsolutePosition, inst.AbsoluteSize
+		return p.X >= a.X and p.X <= a.X + s.X and p.Y >= a.Y and p.Y <= a.Y + s.Y
+	end
+	maid:Give(UIS.InputBegan:Connect(function(input)
+		if api.Open and Core.IsPointer(input) and not Inside(frame, input.Position) and not Inside(row, input.Position) then
+			api:SetOpen(false)
+		end
+	end))
+
+	return pop
 end
 
 function Elements:CreateButton(o)
@@ -432,9 +535,9 @@ function Elements:CreateDropdown(o)
 	local multi = o.MultipleOptions or o.Multi or false
 	local options = table.clone(o.Options or {})
 	local row, title = Row(self, o)
-	row.ClipsDescendants = true
 	title.Size = UDim2.new(0.5, -12, 0, 38)
 	local api, maid = Element(self, row, title, o, { Open = false })
+	local win = self.Window
 	local selected, items = {}, {}
 
 	local header = Hit(row, 38)
@@ -460,6 +563,9 @@ function Elements:CreateDropdown(o)
 		Parent = row,
 	})
 
+	local pop = Popup(self, row, api, maid)
+	api.Popup = pop.Frame
+
 	local searchHeight = o.Search and 30 or 0
 	local search
 	if o.Search then
@@ -468,22 +574,25 @@ function Elements:CreateDropdown(o)
 			PlaceholderText = "Search...",
 			Font = Enum.Font.Gotham,
 			TextXAlignment = Enum.TextXAlignment.Left,
-			Position = UDim2.fromOffset(8, 40),
+			Position = UDim2.fromOffset(8, 8),
 			Size = UDim2.new(1, -16, 0, 24),
-			Parent = row,
+			ZIndex = 51,
+			Parent = pop.Frame,
 		})
 		Core.Padding(search, 0, 8, 0, 8)
 	end
 
+	local listTop = 8 + searchHeight
 	local list = New("ScrollingFrame", {
-		Position = UDim2.fromOffset(8, 40 + searchHeight),
+		Position = UDim2.fromOffset(8, listTop),
 		Size = UDim2.new(1, -16, 0, 0),
 		BackgroundTransparency = 1,
 		ScrollBarThickness = 2,
 		CanvasSize = UDim2.new(),
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ZIndex = 51,
 		Theme = { ScrollBarImageColor3 = "Accent" },
-		Parent = row,
+		Parent = pop.Frame,
 	})
 	Core.List(list, 2)
 
@@ -514,8 +623,8 @@ function Elements:CreateDropdown(o)
 		end
 		local listHeight = math.min(count * 28, 168)
 		list.Size = UDim2.new(1, -16, 0, listHeight)
-		local height = if api.Open then 40 + searchHeight + listHeight + 8 else 38
-		Animator:Tween(row, { Size = UDim2.new(1, 0, 0, height) })
+		pop.Height = listTop + listHeight + 8
+		pop:Update(api.Open)
 		Animator:Tween(chevron, { Rotation = api.Open and 180 or 0 }, "Fast")
 	end
 
@@ -546,6 +655,7 @@ function Elements:CreateDropdown(o)
 				AutoButtonColor = false,
 				Size = UDim2.new(1, -4, 0, 26),
 				LayoutOrder = i,
+				ZIndex = 52,
 				Theme = {
 					BackgroundColor3 = function(p)
 						return if selected[name] then p.Elevated else p.Surface
@@ -611,7 +721,14 @@ function Elements:CreateDropdown(o)
 	end
 
 	function api:SetOpen(state)
-		self.Open = state == true
+		state = state == true
+		if state and self.Locked then
+			return
+		end
+		if state then
+			win:_ClosePopups(self)
+		end
+		self.Open = state
 		Layout()
 	end
 
@@ -626,6 +743,260 @@ function Elements:CreateDropdown(o)
 	Build()
 	api:Set(o.CurrentOption or o.Default, true)
 	Filter()
+	return api
+end
+
+local function ToHSV(c)
+	local r, g, b = c.R, c.G, c.B
+	local max, min = math.max(r, g, b), math.min(r, g, b)
+	local delta = max - min
+	local h = 0
+	if delta > 0 then
+		if max == r then
+			h = ((g - b) / delta) % 6
+		elseif max == g then
+			h = (b - r) / delta + 2
+		else
+			h = (r - g) / delta + 4
+		end
+		h /= 6
+	end
+	return h, if max == 0 then 0 else delta / max, max
+end
+
+local function FromHSV(h, s, v)
+	local i = math.floor(h * 6)
+	local f = h * 6 - i
+	local p, q, t = v * (1 - s), v * (1 - f * s), v * (1 - (1 - f) * s)
+	local m = i % 6
+	local r, g, b
+	if m == 0 then
+		r, g, b = v, t, p
+	elseif m == 1 then
+		r, g, b = q, v, p
+	elseif m == 2 then
+		r, g, b = p, v, t
+	elseif m == 3 then
+		r, g, b = p, q, v
+	elseif m == 4 then
+		r, g, b = t, p, v
+	else
+		r, g, b = v, p, q
+	end
+	return Color3.fromRGB(math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5))
+end
+
+local function ToHex(c)
+	return string.format("#%02X%02X%02X", math.floor(c.R * 255 + 0.5), math.floor(c.G * 255 + 0.5), math.floor(c.B * 255 + 0.5))
+end
+
+local function ParseColor(value)
+	if typeof(value) == "Color3" then
+		return value
+	end
+	if type(value) == "string" then
+		local hex = value:match("^%s*#?(%x+)%s*$")
+		if hex and #hex == 3 then
+			hex = hex:gsub(".", "%0%0")
+		end
+		if hex and #hex == 6 then
+			return Color3.fromRGB(tonumber(hex:sub(1, 2), 16), tonumber(hex:sub(3, 4), 16), tonumber(hex:sub(5, 6), 16))
+		end
+	end
+	return nil
+end
+
+function Elements:CreateColorPicker(o)
+	o = o or {}
+	local row, title = Row(self, o)
+	title.Size = UDim2.new(1, -90, 1, 0)
+	local api, maid = Element(self, row, title, o, { Open = false })
+	local win = self.Window
+
+	local start = ParseColor(o.CurrentValue or o.Default) or Color3.fromRGB(255, 255, 255)
+	local h, s, v = ToHSV(start)
+	api.Value = start
+
+	local header = Hit(row, 38)
+	local swatch = New("Frame", {
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -12, 0.5, 0),
+		Size = UDim2.fromOffset(40, 20),
+		BackgroundColor3 = start,
+		Parent = row,
+	})
+	Core.Corner(swatch, 5)
+	Core.Stroke(swatch)
+
+	local pop = Popup(self, row, api, maid)
+	api.Popup = pop.Frame
+	pop.Height = 176
+
+	-- saturation / value square: hue colour, white fading right, black fading down
+	local sv = New("TextButton", {
+		Name = "SV",
+		Text = "",
+		AutoButtonColor = false,
+		Position = UDim2.fromOffset(8, 8),
+		Size = UDim2.new(1, -44, 0, 120),
+		BackgroundColor3 = FromHSV(h, 1, 1),
+		ZIndex = 51,
+		Parent = pop.Frame,
+	})
+	Core.Corner(sv, 6)
+	local white = New("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(255, 255, 255), ZIndex = 52, Parent = sv })
+	Core.Corner(white, 6)
+	New("UIGradient", { Transparency = NumberSequence.new(0, 1), Parent = white })
+	local black = New("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(0, 0, 0), ZIndex = 53, Parent = sv })
+	Core.Corner(black, 6)
+	New("UIGradient", { Transparency = NumberSequence.new(1, 0), Rotation = 90, Parent = black })
+	local svCursor = New("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Size = UDim2.fromOffset(12, 12),
+		BackgroundTransparency = 1,
+		ZIndex = 55,
+		Parent = sv,
+	})
+	Core.Corner(svCursor, 6)
+	Core.Stroke(svCursor, "Text", 2)
+
+	local hue = New("TextButton", {
+		Name = "Hue",
+		Text = "",
+		AutoButtonColor = false,
+		Position = UDim2.new(1, -28, 0, 8),
+		Size = UDim2.fromOffset(20, 120),
+		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+		ZIndex = 51,
+		Parent = pop.Frame,
+	})
+	Core.Corner(hue, 6)
+	local function Key(t, r, g, b)
+		return ColorSequenceKeypoint.new(t, Color3.fromRGB(r, g, b))
+	end
+	New("UIGradient", {
+		Rotation = 90,
+		Color = ColorSequence.new({
+			Key(0, 255, 0, 0), Key(1 / 6, 255, 255, 0), Key(2 / 6, 0, 255, 0), Key(3 / 6, 0, 255, 255),
+			Key(4 / 6, 0, 0, 255), Key(5 / 6, 255, 0, 255), Key(1, 255, 0, 0),
+		}),
+		Parent = hue,
+	})
+	local hueCursor = New("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Size = UDim2.new(1, 6, 0, 4),
+		BackgroundTransparency = 1,
+		ZIndex = 55,
+		Parent = hue,
+	})
+	Core.Corner(hueCursor, 2)
+	Core.Stroke(hueCursor, "Text", 2)
+
+	local hexBox = SmallBox("TextBox", {
+		Text = "",
+		PlaceholderText = "#RRGGBB",
+		Font = Enum.Font.Gotham,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Position = UDim2.fromOffset(8, 136),
+		Size = UDim2.new(1, -16, 0, 28),
+		ZIndex = 51,
+		Parent = pop.Frame,
+	})
+	Core.Padding(hexBox, 0, 8, 0, 8)
+
+	local function Paint()
+		local color = FromHSV(h, s, v)
+		api.Value = color
+		swatch.BackgroundColor3 = color
+		sv.BackgroundColor3 = FromHSV(h, 1, 1)
+		svCursor.Position = UDim2.fromScale(s, 1 - v)
+		hueCursor.Position = UDim2.fromScale(0.5, h)
+		hexBox.Text = ToHex(color)
+	end
+
+	function api:Get()
+		return self.Value
+	end
+	function api:GetHex()
+		return ToHex(self.Value)
+	end
+	-- config files are JSON, so a colour is stored as hex
+	api.Export = api.GetHex
+
+	function api:Set(value, silent)
+		local color = ParseColor(value)
+		if not color then
+			hexBox.Text = ToHex(self.Value)
+			return
+		end
+		local nh, ns, nv = ToHSV(color)
+		-- a grey or black pick has no meaningful hue/saturation: keep what the user had
+		if ns > 0 and nv > 0 then
+			h = nh
+		end
+		if nv > 0 then
+			s = ns
+		end
+		v = nv
+		Paint()
+		if not silent then
+			Fire(o.Callback, self.Value)
+		end
+	end
+
+	local function Drag(frame, apply)
+		local dragging = false
+		local function Move(pos)
+			local size, abs = frame.AbsoluteSize, frame.AbsolutePosition
+			apply(math.clamp((pos.X - abs.X) / math.max(size.X, 1), 0, 1), math.clamp((pos.Y - abs.Y) / math.max(size.Y, 1), 0, 1))
+			Paint()
+			Fire(o.Callback, api.Value)
+		end
+		maid:Give(frame.InputBegan:Connect(function(input)
+			if Core.IsPointer(input) then
+				dragging = true
+				Move(input.Position)
+			end
+		end))
+		maid:Give(UIS.InputChanged:Connect(function(input)
+			if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+				Move(input.Position)
+			end
+		end))
+		maid:Give(UIS.InputEnded:Connect(function(input)
+			if Core.IsPointer(input) then
+				dragging = false
+			end
+		end))
+	end
+	Drag(sv, function(x, y)
+		s, v = x, 1 - y
+	end)
+	Drag(hue, function(_, y)
+		h = math.min(y, 0.9999)
+	end)
+
+	maid:Give(hexBox.FocusLost:Connect(function()
+		api:Set(hexBox.Text)
+	end))
+
+	function api:SetOpen(state)
+		state = state == true
+		if state and self.Locked then
+			return
+		end
+		if state then
+			win:_ClosePopups(self)
+		end
+		self.Open = state
+		pop:Update(state)
+	end
+	maid:Give(header.MouseButton1Click:Connect(function()
+		api:SetOpen(not api.Open)
+	end))
+	Hover(maid, header, row)
+
+	Paint()
 	return api
 end
 
@@ -673,7 +1044,7 @@ function Elements:CreateKeybind(o)
 			else
 				api:Set(input.KeyCode)
 			end
-		elseif not processed and api.Key and input.KeyCode == api.Key then
+		elseif not processed and not api.Locked and api.Key and input.KeyCode == api.Key then
 			Fire(o.Callback, api.Key)
 		end
 	end))

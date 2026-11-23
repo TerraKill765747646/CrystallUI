@@ -64,6 +64,7 @@ local Theme = Import("src/ThemeEngine")
 local Core = Import("src/Core")
 local Notifications = Import("src/Notifications")
 local Controls = Import("src/Controls")
+local KeySystem = Import("src/KeySystem")
 
 local Library = Core.Library
 Library.Import = Import
@@ -71,6 +72,15 @@ Library.RepoUrl = REPO_URL
 Library.Core = Core
 Library.Controls = Controls
 Library.Notifications = Notifications
+Library.KeySystemModule = KeySystem
+
+function Library:KeySystem(options)
+	return KeySystem:Run(options)
+end
+
+function Library:ForgetKey(id)
+	KeySystem:ForgetKey(id)
+end
 
 function Library:Notify(options)
 	return Notifications:Notify(options)
@@ -100,4 +110,4 @@ if Config.Theme then
 	Theme:SetTheme(Config.Theme)
 end
 
-return Library
+return Library

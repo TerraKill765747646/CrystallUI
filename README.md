@@ -9,6 +9,7 @@ src/ThemeEngine      палитры, профили анимации, бинди
 src/Core             окно, вкладки, секции, Maid, флаги, конфиги
 src/Controls         все контролы
 src/Notifications    очередь уведомлений
+src/KeySystem        окно ввода ключа и проверка (фиксированные ключи, свой валидатор, HTTP API)
 Example.luau         демо всех возможностей
 Tests.luau           переносимый набор тестов (executor и headless)
 tests/               мок Roblox API и раннер для headless-прогона
@@ -18,6 +19,13 @@ tests/               мок Roblox API и раннер для headless-прог�
 
 ```lua
 local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/TerraKill765747646/CrystallUI/main/Init.luau"))()
+```
+
+По умолчанию модули берутся из `TerraKill765747646/CrystallUI` (ветка `main`). Если репозиторий лежит в другом месте, передай адрес явно:
+
+```lua
+local Library = loadstring(game:HttpGet(INIT_URL))("https://example.com/crystall/")          -- строка = RepoUrl
+local Library = loadstring(game:HttpGet(INIT_URL))({ RepoUrl = "https://example.com/crystall/" })
 ```
 
 ### Параметры загрузки
@@ -57,6 +65,9 @@ Library:CreateWindow({
 	Size = UDim2.fromOffset(560, 380),
 	ToggleKey = "RightShift",   -- имя KeyCode, EnumItem или false (без хоткея)
 	Search = true,              -- false убирает поиск по вкладкам
+	MobileButton = nil,         -- плавающая кнопка открытия: nil = только на тач-устройствах, true/false = принудительно
+	ToggleIcon = "◆",           -- символ на плавающей кнопке
+	Icon = "◆",                 -- символ слева от заголовка окна, false убирает
 	Theme = { Palette = "Amethyst", Motion = "Minimal" },
 })
 ```
@@ -68,9 +79,18 @@ Library:CreateWindow({
 | `Window:Toggle(state?)` | Показать/скрыть. Без аргумента переключает. |
 | `Window:Minimize(state?)` | Свернуть до заголовка. |
 | `Window:SetToggleKey(key)` | Сменить хоткей. Невалидное имя отключает его. |
+| `Window:SetMobileButton(bool)` | Показать/скрыть плавающую кнопку (при `true` создаст её, если её не было). |
 | `Window:Destroy()` | Убрать окно и все его подключения. |
 
 Окно перетаскивается за заголовок и не уходит за пределы экрана.
+
+### Плавающая кнопка (телефон)
+
+На тач-устройствах у окна появляется круглая кнопка с акцентной обводкой и символом кристалла. Тап открывает и закрывает окно (хоткей на телефоне недоступен, а крестик окно только прячет). Кнопку можно перетащить: сдвиг меньше 8 px считается тапом, больше начинает перетаскивание. При отпускании она примагничивается к левому или правому краю, не выходит за экран и подтягивается обратно при повороте экрана. Пока окно открыто, кнопка полупрозрачная, когда скрыто, залита сплошным цветом. Цвета следуют за палитрой. Внешний вид доступен как `Window.ToggleButton`.
+
+```lua
+Library:CreateWindow({ Name = "Hub", MobileButton = true })  -- показать и на ПК
+```
 
 `Tab:CreateSection(name, { Collapsible = false, Collapsed = false })` создаёт секцию. У секции есть `SetCollapsed(bool)`, `SetTitle(text)`, `Destroy()`.
 Контролы можно создавать и прямо на вкладке, без секции.
@@ -85,6 +105,7 @@ Library:CreateWindow({
 | `Flag` | Строковый ключ для конфигов и `Library:GetFlag`. Повтор ключа выводит предупреждение, побеждает последний элемент. |
 | `Callback` | Вызывается в отдельном потоке, ошибки ловятся и выводятся через `warn`. |
 | `api:SetTitle(text)`, `api:SetVisible(bool)`, `api:Destroy()` | Работают у каждого элемента. `Destroy` освобождает флаг. |
+| `api:SetLocked(bool)`, опция `Locked` | Блокировка: элемент затемняется и не принимает ввод. Из кода `Set` по-прежнему работает. У открытого списка блокировка его закрывает. |
 | `api.Instance` | Корневой `Frame` элемента. |
 
 `Set(value, silent)` у всех значимых элементов: если `silent` истинно, колбэк не вызывается.
@@ -98,6 +119,7 @@ Library:CreateWindow({
 | `CreateChecklist` | `Options`, `CurrentValue` (список) | `Get()`, `Set(list)` | `(list)` |
 | `CreateKeybind` | `CurrentKeybind` (имя или EnumItem) | `Get()` (имя клавиши или `"None"`), `Set(key)` | `Callback(key)` при нажатии, `ChangedCallback(key)` при смене |
 | `CreateInput` | `CurrentValue`, `PlaceholderText`, `RemoveTextAfterFocusLost` | `Get()`, `Set(text)` | `(text, enterPressed)` |
+| `CreateColorPicker` | `CurrentValue` (Color3 или hex), `Default` | `Get()` (Color3), `GetHex()`, `Set(Color3 \| hex, silent)`, `SetOpen(bool)` | `(color3)` |
 | `CreateLabel` | строка или `{ Text }` | `Set(text)` | |
 | `CreateParagraph` | `Title`, `Content` | `Set(string \| { Title, Content })` | |
 | `CreateDivider` | | | |
@@ -108,6 +130,8 @@ Library:CreateWindow({
 - Клавиша в `CreateKeybind` после клика на кнопку ждёт нажатия. `Escape` и `Backspace` снимают привязку.
 - `Dropdown:Refresh(newOptions, true)` сохраняет только те выбранные значения, что остались в новом списке.
 - Метки (`CreateLabel`) переносят длинный текст.
+- Выпадающий список и палитра открываются отдельной панелью поверх окна, а не раздвигают страницу. Панель следует за строкой при скролле и перетаскивании окна, переворачивается вверх, если снизу нет места, закрывается кликом вне её, при смене вкладки и при скрытии окна. Одновременно открыта только одна. Сама панель доступна как `api.Popup`.
+- `CreateColorPicker`: квадрат насыщенности и яркости, полоса оттенка, поле hex (`#RRGGBB` или `#RGB`). В конфиг цвет пишется строкой hex. Серый и чёрный цвета не сбрасывают выбранный оттенок.
 
 ## Флаги и конфиги
 
@@ -118,7 +142,7 @@ local tbl  = Library:ExportConfig(true)-- таблица { flag = value }
 Library:ImportConfig(json)             -- принимает строку или таблицу, возвращает true | false, причина
 ```
 
-Неизвестные флаги при импорте пропускаются. Импорт вызывает колбэки, как обычный `Set`.
+В конфиг входит и тема (`__theme = { Palette, Motion }`), она применяется до значений контролов. Неизвестная палитра в конфиге игнорируется. Неизвестные флаги при импорте пропускаются. Импорт вызывает колбэки, как обычный `Set`.
 
 Сохранение на диск (нужны `writefile`/`readfile` в экзекьюторе, файлы лежат в `CrystallUI/configs/<имя>.json`):
 
@@ -186,9 +210,92 @@ handle:Close()
 
 `Library:Notify("просто текст")` тоже работает. Одновременно видно `Library.Notifications.Max` штук (по умолчанию 4), остальные ждут в очереди. Закрытие уведомления из очереди просто выкидывает его. Первая кнопка в `Actions` подсвечивается акцентом, любая кнопка закрывает уведомление.
 
+## Диалоги
+
+```lua
+Library:Dialog({
+	Title = "Update",
+	Content = "A new version is available.",
+	Buttons = {
+		{ Name = "Later" },
+		{ Name = "Details", Keep = true, Callback = function() end },       -- Keep: не закрывать после клика
+		{ Name = "Update", Style = "Primary", Callback = function() end },  -- Style: Primary | Default | Danger
+	},
+	OnClose = function() end,
+})
+
+if Library:Confirm({ Title = "Delete?", Content = "This can't be undone.", Yes = "Delete", No = "Cancel", Danger = true }) then
+	-- ...
+end
+```
+
+`Dialog` возвращает модальное окно с `:Close()`. `Confirm` блокирует поток до ответа и возвращает `true` или `false` (закрытие крестиком это `false`). Вызывай его из потока, которому можно уступать (колбэки контролов и основной поток скрипта подходят).
+
+## Система ключей
+
+Окно ввода ключа перед запуском скрипта. Скрипт ждёт, пока ключ не будет принят.
+
+```lua
+local ok, key = Library:KeySystem({
+	Title = "My Hub",
+	Subtitle = "Enter your key to continue.",
+	Keys = { "ABC-123", "DEF-456" },            -- фиксированные ключи (или Key = "..." для одного)
+	Links = { { Name = "Get key", Url = "https://example.com/key" } },
+	SaveKey = true,
+	MaxAttempts = 5,
+})
+if not ok then return end
+-- дальше строим окно
+```
+
+Источники проверки можно комбинировать, подходит любой из них. Порядок: фиксированные ключи, `Validate`, `Api`.
+
+**Свой валидатор.** Функция получает ключ и возвращает `true` или `false, "сообщение"`. Внутри можно ходить в любой API самостоятельно. Ошибка внутри считается неудачной попыткой, а не падением.
+
+```lua
+Validate = function(key)
+	local response = game:HttpGet("https://example.com/check?key=" .. key)
+	return response == "ok", "Key expired"
+end
+```
+
+**HTTP API из коробки.**
+
+```lua
+Api = {
+	Url = "https://example.com/api/check?key={key}&hwid={hwid}",
+	Method = "GET",                      -- по умолчанию GET, а с Body POST
+	Headers = { Authorization = "Bearer ..." },
+	Body = { key = "{key}", product = "hub" },   -- таблица уходит как JSON
+	Success = function(response)
+		return response.Json and response.Json.status == "active", response.Json and response.Json.message
+	end,
+	Timeout = 10,
+}
+```
+
+`{key}` в URL кодируется, `{hwid}` это идентификатор клиента. Используется `request`/`http_request` экзекьютора, для GET без него запасной вариант `game:HttpGet`. `response` содержит `StatusCode`, `Body`, `Headers` и `Json` (разобранное тело или `nil`). `Request = function(options) -> response` заменяет транспорт целиком.
+Без своей `Success` ключ принимается только если ответ 2xx и тело это `{"valid": true}`, `{"success": true}` или голое `true`/`valid`/`ok`. Страница ошибки с кодом 200 ничего не открывает. Таймаут, сетевая ошибка и исключение это неудачная попытка.
+
+| Опция | |
+|---|---|
+| `Title`, `Subtitle`, `Icon`, `Note`, `Placeholder`, `ButtonText`, `Width` | Тексты и вид окна. |
+| `Links` | Кнопки со ссылками (`Name`, `Url`, `Callback`). Ссылка копируется в буфер, без `setclipboard` показывается текстом. `GetKey = "url"` короткая форма для одной. |
+| `SaveKey`, `Id` | Запомнить принятый ключ в `CrystallUI/keys/<Id>.txt`. При запуске он проверяется заново, устаревший удаляется и окно показывается снова. `Id` по умолчанию равен `Title`. |
+| `MaxAttempts` | После стольких неудач окно закрывается, результат `false`. |
+| `Cooldown` | Пауза между попытками, по умолчанию 1 секунда. |
+| `Timeout` | Предел ожидания проверки, по умолчанию 10 секунд. |
+| `Closable` | `false` убирает крестик, по умолчанию `true`. |
+| `OnSuccess(key)`, `OnFail(reason)`, `OnReady(handle)` | Колбэки. |
+| `Async` | Вернуть управление сразу и получить `handle` (`Finished`, `Ok`, `Key`, `Reason`, `Attempts`, `:Close()`, `:Submit(text)`). |
+
+`Library:ForgetKey(id)` удаляет сохранённый ключ.
+
+Честно о защите: всё, что выполняется на клиенте, можно прочитать и обойти, это относится и к зашитым ключам, и к проверке по API (ответ сервера можно подделать, а вызов проверки вырезать). Фиксированные ключи это вежливая табличка, серверная проверка с привязкой к `hwid` делает обход заметно дороже, но не невозможным. Не клади в скрипт секреты, которые нельзя раскрывать.
+
 ## Жизненный цикл
 
-`Library:Destroy()` закрывает все окна, уведомления, отключает все подключения, сбрасывает флаги и биндинги темы.
+`Library:Destroy()` закрывает все окна, диалоги, уведомления, отключает все подключения, сбрасывает флаги и биндинги темы.
 `Window:Destroy()` убирает только своё окно. Если нужен только один контрол, `api:Destroy()`.
 
 ## Запуск тестов
@@ -208,7 +315,7 @@ loadstring(game:HttpGet(REPO .. "Tests.luau"))()(Library)
 python3 tests/run.py
 ```
 
-Раннер собирает все модули в один скрипт, грузит их через `Config.Loader` поверх мока Roblox API (`tests/mock_roblox.luau`), гоняет `Tests.luau` и дополнительные интерактивные тесты (`tests/headless_extra.luau`: клики, драг слайдера, ввод клавиш, поиск, перетаскивание окна).
+Раннер собирает все модули в один скрипт, грузит их через `Config.Loader` поверх мока Roblox API (`tests/mock_roblox.luau`), гоняет `Tests.luau` и дополнительные интерактивные тесты (`tests/headless_extra.luau`: клики, драг слайдера и палитры, ввод клавиш, поиск, перетаскивание окна, закрытие панелей, диалоги, окно ключа).
 Мок не движок: твины применяют конечное значение, размеры не считаются. Он ловит логические и рантайм-ошибки, но верстку не проверяет.
 
 ## Что изменено в этой версии
@@ -225,6 +332,6 @@ python3 tests/run.py
 - Длинные `CreateLabel` вылезали за границы.
 - `Window:CreateTab` и `Tab:CreateSection` падали при `nil` вместо имени.
 
-Добавлено: `Window:SelectTab`, `Section:SetTitle`, `ToggleKey = false`, `Library:SaveConfig/LoadConfig/ListConfigs`, `Theme:ListPalettes/ListMotions`, палитры `Emerald` и `Quartz`, профиль `Instant`, загрузка через `Config.Loader` и `Config.LocalPath`, валидация в `RegisterPalette/RegisterMotion`, предупреждение о повторных флагах, `Maid:Remove`, поддержка потоков в `Maid`.
+Добавлено: система ключей (`Library:KeySystem`), диалоги (`Dialog`, `Confirm`), `CreateColorPicker`, блокировка элементов (`SetLocked`, `Locked`), выпадающие списки поверх страницы вместо раздвигания строки, тема внутри конфига, внешний вид (символ перед заголовком окна, акцентная линия под шапкой, подсветка вкладок при наведении, акцентная метка у секций), плавающая кнопка открытия для телефона (`MobileButton`, `ToggleIcon`, `Window:SetMobileButton`), `Window:SelectTab`, `Section:SetTitle`, `ToggleKey = false`, `Library:SaveConfig/LoadConfig/ListConfigs`, `Theme:ListPalettes/ListMotions`, палитры `Emerald` и `Quartz`, профиль `Instant`, загрузка через `Config.Loader` и `Config.LocalPath`, валидация в `RegisterPalette/RegisterMotion`, предупреждение о повторных флагах, `Maid:Remove`, поддержка потоков в `Maid`.
 
-Проверено линтером `luau-analyze` и 49 тестами на моке. В живом Roblox не запускалось, так что верстку (перенос в `CreateLabel`, индикатор вкладок) стоит глянуть глазами.
+Проверено линтером `luau-analyze` и 84 тестами на моке. В живом Roblox не запускалось, так что верстку и внешний вид (перенос в `CreateLabel`, индикатор вкладок, панели списков и палитры, градиенты в ColorPicker, окно ключа) стоит глянуть глазами.

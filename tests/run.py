@@ -34,7 +34,11 @@ def main():
         print("luau binary not found in PATH")
         return 2
 
-    modules = {name: read(f"{name}.luau") for name in ("src/ThemeEngine", "src/Core", "src/Notifications", "src/Controls")}
+    modules = {
+        f"src/{f[:-5]}": read(f"src/{f}")
+        for f in sorted(os.listdir(os.path.join(ROOT, "src")))
+        if f.endswith(".luau")
+    }
     bundle = [
         "local Mock = (function()",
         read("tests/mock_roblox.luau"),

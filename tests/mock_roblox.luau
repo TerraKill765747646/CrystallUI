@@ -76,6 +76,10 @@ UDim2 = {
 Color3 = {
 	fromRGB = function(r, g, b) return typed({ R = r / 255, G = g / 255, B = b / 255 }, "Color3") end,
 }
+Color3.new = function(r, g, b) return typed({ R = r, G = g, B = b }, "Color3") end
+ColorSequence = { new = function(...) return typed({ args = { ... } }, "ColorSequence") end }
+ColorSequenceKeypoint = { new = function(t, c) return typed({ Time = t, Value = c }, "ColorSequenceKeypoint") end }
+NumberSequence = { new = function(...) return typed({ args = { ... } }, "NumberSequence") end }
 TweenInfo = {
 	new = function(t, style, dir) return typed({ Time = t, EasingStyle = style, EasingDirection = dir }, "TweenInfo") end,
 }
@@ -496,6 +500,9 @@ local function decode(s)
 	assert(i > #s, "trailing garbage")
 	return result
 end
+function HttpService:UrlEncode(v)
+	return (tostring(v):gsub("[^%w%-_%.~]", function(c) return string.format("%%%02X", c:byte()) end))
+end
 function HttpService:GenerateGUID() return "00000000-0000-0000-0000-000000000000" end
 function HttpService:JSONEncode(v) return encode(v) end
 function HttpService:JSONDecode(s) return decode(s) end
@@ -520,6 +527,8 @@ listfiles = function(dir)
 	end
 	return out
 end
+
+setclipboard = function(text) Mock.Clipboard = text end
 
 ---------------------------------------------------------------- input helpers for tests
 function Mock.Input(userInputType, extra)

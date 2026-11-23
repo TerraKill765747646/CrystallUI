@@ -10,9 +10,41 @@
 
 local Library = ...
 if type(Library) ~= "table" then
-	Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/TerraKill765747646/CrystallUI/refs/heads/main/Init.luau"))({
+	Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/TerraKill765747646/CrystallUI/main/Init.luau"))({
 		Theme = { Palette = "Amethyst" },
 	})
+end
+
+----------------------------------------------------------------------------------------------------
+-- Optional key prompt. Flip USE_KEY_SYSTEM to try it: the script waits here until the key is accepted.
+----------------------------------------------------------------------------------------------------
+local USE_KEY_SYSTEM = false
+
+if USE_KEY_SYSTEM then
+	local ok = Library:KeySystem({
+		Title = "Crystall Hub",
+		Subtitle = "Enter your key to continue.",
+		SaveKey = true, -- remembered on disk, the prompt is skipped next time
+
+		-- 1) fixed keys (any of these three sources can be combined)
+		Keys = { "DEMO-KEY-1234" },
+
+		-- 2) your own check, may call any API itself
+		-- Validate = function(key) return key:match("^%u%u%u%u%-%d+$") ~= nil, "Wrong format" end,
+
+		-- 3) a key server; {key} is url-encoded, {hwid} is the client id
+		-- Api = {
+		-- 	Url = "https://example.com/api/check?key={key}&hwid={hwid}",
+		-- 	-- by default a 2xx answer with {"valid": true} (or "success": true, or a plain "true") unlocks
+		-- 	-- Success = function(response) return response.Json and response.Json.status == "active" end,
+		-- },
+
+		Links = { { Name = "Get key", Url = "https://example.com/get-key" } },
+		MaxAttempts = 5,
+	})
+	if not ok then
+		return -- window closed or too many attempts
+	end
 end
 
 local Window = Library:CreateWindow({
@@ -67,6 +99,20 @@ Basics:CreateInput({
 
 local Choices = Main:CreateSection("Choices", { Collapsible = true })
 
+-- a locked element ignores input and is dimmed; handy for options that depend on another toggle
+local Advanced = Basics:CreateSlider({
+	Name = "Advanced tuning",
+	Range = { 1, 10 },
+	CurrentValue = 5,
+	Locked = true,
+})
+Basics:CreateToggle({
+	Name = "Unlock advanced tuning",
+	Callback = function(value)
+		Advanced:SetLocked(not value)
+	end,
+})
+
 local Fruit = Choices:CreateDropdown({
 	Name = "Fruit",
 	Flag = "fruit",
@@ -108,6 +154,15 @@ Choices:CreateKeybind({
 	end,
 	ChangedCallback = function(key)
 		print("Rebound to", key and key.Name or "None")
+	end,
+})
+
+Choices:CreateColorPicker({
+	Name = "Highlight colour",
+	Flag = "highlight",
+	CurrentValue = "#7C4DFF", -- Color3 or hex
+	Callback = function(color)
+		print("Colour:", color)
 	end,
 })
 
@@ -242,7 +297,25 @@ local Danger = Settings:CreateSection("Danger zone")
 Danger:CreateButton({
 	Name = "Unload UI",
 	Callback = function()
-		Library:Destroy()
+		-- Confirm yields until the user answers; button callbacks run in their own thread, so that is fine
+		if Library:Confirm({ Title = "Unload?", Content = "The window and all settings in memory will be gone.", Yes = "Unload", Danger = true }) then
+			Library:Destroy()
+		end
+	end,
+})
+
+Danger:CreateButton({
+	Name = "Show a dialog",
+	Callback = function()
+		Library:Dialog({
+			Title = "Custom dialog",
+			Content = "Any number of buttons, each with its own callback.",
+			Buttons = {
+				{ Name = "Not now" },
+				{ Name = "Keep open", Keep = true, Callback = function() print("still here") end },
+				{ Name = "Do it", Style = "Primary", Callback = function() print("done") end },
+			},
+		})
 	end,
 })
 

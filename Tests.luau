@@ -111,6 +111,22 @@ test("ToggleKey can be changed and disabled", function()
 	win:SetToggleKey("F")
 end)
 
+test("floating toggle button follows MobileButton", function()
+	eq(win.ToggleButton, nil, "off by default without touch")
+	local w = Library:CreateWindow({ Name = "Mobile", MobileButton = true })
+	truthy(w.ToggleButton, "created when forced on")
+	w:SetMobileButton(false)
+	eq(w.ToggleButton.Visible, false, "hidden")
+	w:SetMobileButton(true)
+	eq(w.ToggleButton.Visible, true, "shown again")
+	local off = Library:CreateWindow({ Name = "NoMobile", MobileButton = false })
+	eq(off.ToggleButton, nil, "forced off")
+	off:SetMobileButton(true)
+	truthy(off.ToggleButton, "can be enabled later")
+	w:Destroy()
+	off:Destroy()
+end)
+
 test("sections collapse and rename", function()
 	section:SetCollapsed(true)
 	eq(section.Collapsed, true, "collapsed")
@@ -473,6 +489,327 @@ test("string shorthand and actions", function()
 	settle(1)
 end)
 
+print("\n[Extra controls]")
+
+test("colour picker Set/Get/hex and config export", function()
+	local last
+	local picker = section:CreateColorPicker({ Name = "C", Flag = "cp_flag", CurrentValue = "#336699", Callback = function(c) last = c end })
+	eq(picker:GetHex(), "#336699", "initial from hex")
+	picker:Set("#FF8000")
+	eq(picker:GetHex(), "#FF8000", "Set(hex)")
+	truthy(math.abs(picker:Get().G - 128 / 255) < 0.01, "green channel")
+	truthy(last, "callback fired")
+	last = nil
+	picker:Set(Color3.fromRGB(10, 20, 30), true)
+	eq(picker:GetHex(), "#0A141E", "Set(Color3), silent")
+	eq(last, nil, "silent")
+	picker:Set("not a colour")
+	eq(picker:GetHex(), "#0A141E", "garbage is ignored")
+	picker:Set("#abc")
+	eq(picker:GetHex(), "#AABBCC", "short hex")
+	picker:Set("#000000")
+	picker:Set("#FF0000", true)
+	eq(picker:GetHex(), "#FF0000", "recovers from black")
+
+	local data = Library:ExportConfig(true)
+	eq(data.cp_flag, "#FF0000", "colours are exported as hex strings")
+	picker:Set("#00FF00", true)
+	eq(Library:ImportConfig(Library:ExportConfig()), true, "json round trip")
+	picker:Set("#0000FF", true)
+	Library:ImportConfig({ cp_flag = "#123456" })
+	eq(picker:GetHex(), "#123456", "import")
+	picker:Destroy()
+end)
+
+test("SetLocked works on any element and via the Locked option", function()
+	local toggle = section:CreateToggle({ Name = "L", Locked = true })
+	eq(toggle.Locked, true, "locked from the start")
+	toggle:SetLocked(false)
+	eq(toggle.Locked, false, "unlocked")
+	toggle:Set(true)
+	eq(toggle:Get(), true, "code can still Set a locked element")
+	toggle:Destroy()
+
+	local dd = section:CreateDropdown({ Name = "D", Options = { "a" } })
+	dd:SetOpen(true)
+	dd:SetLocked(true)
+	eq(dd.Open, false, "locking closes a dropdown")
+	dd:SetOpen(true)
+	eq(dd.Open, false, "and it can't be reopened")
+	dd:Destroy()
+end)
+
+test("opening a dropdown closes the other one; switching tabs closes both", function()
+	local a = section:CreateDropdown({ Name = "A", Options = { "1" } })
+	local b = section:CreateDropdown({ Name = "B", Options = { "1" } })
+	a:SetOpen(true)
+	b:SetOpen(true)
+	eq(a.Open, false, "first closed")
+	eq(b.Open, true, "second open")
+	win:SelectTab(tabOther)
+	eq(b.Open, false, "tab switch closes it")
+	win:SelectTab(tabMain)
+	a:Destroy()
+	b:Destroy()
+end)
+
+test("the theme is part of the config", function()
+	local before = Library.Theme.PaletteName
+	Library:SetPalette("Emerald")
+	local json = Library:ExportConfig()
+	local data = Library:ExportConfig(true)
+	eq(data.__theme.Palette, "Emerald", "exported")
+	Library:SetPalette(before)
+	Library:ImportConfig(json)
+	eq(Library.Theme.PaletteName, "Emerald", "imported")
+	Library:ImportConfig({ __theme = { Palette = "NoSuchPalette" } })
+	eq(Library.Theme.PaletteName, "Emerald", "unknown palette is ignored")
+	Library:SetPalette(before)
+end)
+
+print("\n[Dialogs]")
+
+test("Dialog returns a closable modal; Confirm resolves false when closed", function()
+	local closed = 0
+	local dialog = Library:Dialog({ Title = "Hello", Content = "World", OnClose = function() closed += 1 end })
+	eq(dialog.Closed, false, "open")
+	dialog:Close()
+	dialog:Close()
+	eq(dialog.Closed, true, "closed")
+	eq(closed, 1, "OnClose fires once")
+	settle(1)
+
+	local answer = "unset"
+	task.spawn(function()
+		answer = Library:Confirm({ Title = "Sure?" })
+	end)
+	settle(0.3)
+	eq(answer, "unset", "still waiting")
+	local modal = next(Library.Modals)
+	truthy(modal, "modal shown")
+	modal:Close()
+	settle(1)
+	eq(answer, false, "closing counts as no")
+end)
+
+print("\n[Key system]")
+
+local function submit(handle, text)
+	handle:Submit(text)
+	settle(2)
+end
+
+test("fixed key: wrong, right, trimmed, callbacks", function()
+	local accepted
+	local handle = Library:KeySystem({ Async = true, Key = "secret", Cooldown = 0, OnSuccess = function(k) accepted = k end })
+	settle(0.3)
+	submit(handle, "wrong")
+	eq(handle.Finished, false, "wrong key does not finish")
+	eq(handle.Attempts, 1, "attempts")
+	submit(handle, "")
+	eq(handle.Attempts, 1, "empty input is not an attempt")
+	submit(handle, "  secret ")
+	eq(handle.Ok, true, "accepted")
+	eq(handle.Key, "secret", "trimmed key")
+	eq(accepted, "secret", "OnSuccess")
+end)
+
+test("several keys and case-insensitive mode", function()
+	local handle = Library:KeySystem({ Async = true, Keys = { "Alpha", "Beta" }, CaseSensitive = false, Cooldown = 0 })
+	settle(0.3)
+	submit(handle, "BETA")
+	eq(handle.Ok, true, "case-insensitive match")
+
+	local strict = Library:KeySystem({ Async = true, Keys = { "Alpha" }, Cooldown = 0 })
+	settle(0.3)
+	submit(strict, "alpha")
+	eq(strict.Finished, false, "case-sensitive by default")
+	strict:Close()
+	settle(1)
+end)
+
+test("custom validator with a message", function()
+	local calls = {}
+	local handle = Library:KeySystem({
+		Async = true, Cooldown = 0,
+		Validate = function(key) table.insert(calls, key); return key == "good", "Expired key" end,
+	})
+	settle(0.3)
+	submit(handle, "bad")
+	eq(handle.Finished, false, "rejected")
+	submit(handle, "good")
+	eq(handle.Ok, true, "accepted")
+	eq(#calls, 2, "validator called per attempt")
+end)
+
+test("a throwing validator is a failed attempt, not a crash", function()
+	local handle = Library:KeySystem({ Async = true, Cooldown = 0, Validate = function() error("boom") end })
+	settle(0.3)
+	submit(handle, "x")
+	eq(handle.Finished, false, "still waiting for a valid key")
+	handle:Close()
+	settle(1)
+end)
+
+test("API: url is encoded, {key}/{hwid} substituted, default success is strict", function()
+	local seen
+	local reply = { StatusCode = 200, Body = '{"valid":true}' }
+	local handle = Library:KeySystem({
+		Async = true, Cooldown = 0,
+		Api = {
+			Url = "https://example.com/check?key={key}&hwid={hwid}",
+			Request = function(req) seen = req; return reply end,
+		},
+	})
+	settle(0.3)
+
+	reply = { StatusCode = 200, Body = "Invalid key, sorry" }
+	submit(handle, "a b&c")
+	eq(handle.Finished, false, "a 200 with an error page does not unlock")
+	truthy(seen.Url:find("key=a%%20b%%26c"), "key is url-encoded: " .. tostring(seen.Url))
+	truthy(not seen.Url:find("{hwid}", 1, true), "hwid substituted")
+	eq(seen.Method, "GET", "GET by default")
+
+	reply = { StatusCode = 500, Body = '{"valid":true}' }
+	submit(handle, "k")
+	eq(handle.Finished, false, "server error")
+
+	reply = { StatusCode = 200, Body = '{"success":false,"message":"expired"}' }
+	submit(handle, "k")
+	eq(handle.Finished, false, "explicit failure")
+
+	reply = { StatusCode = 200, Body = '{"valid":true}' }
+	submit(handle, "k")
+	eq(handle.Ok, true, "valid:true unlocks")
+end)
+
+test("API: POST with a JSON body, headers and a custom Success", function()
+	local seen
+	local handle = Library:KeySystem({
+		Async = true, Cooldown = 0,
+		Api = {
+			Url = "https://example.com/verify",
+			Body = { key = "{key}", product = "demo" },
+			Headers = { Authorization = "Bearer abc" },
+			Request = function(req) seen = req; return { StatusCode = 201, Body = "granted" } end,
+			Success = function(response) return response.StatusCode == 201 and response.Body == "granted", "nope" end,
+		},
+	})
+	settle(0.3)
+	submit(handle, "K-1")
+	eq(handle.Ok, true, "custom Success decides")
+	eq(seen.Method, "POST", "POST when a body is given")
+	eq(seen.Headers["Content-Type"], "application/json", "content type added")
+	eq(seen.Headers.Authorization, "Bearer abc", "headers kept")
+	truthy(seen.Body:find('"key":"K-1"', 1, true), "key substituted inside the JSON body")
+end)
+
+test("API: a hanging server times out", function()
+	local handle = Library:KeySystem({
+		Async = true, Cooldown = 0, Timeout = 0.3,
+		Api = { Url = "https://example.com/slow", Request = function() task.wait(30); return { StatusCode = 200, Body = "true" } end },
+	})
+	settle(0.3)
+	handle:Submit("k")
+	settle(3)
+	eq(handle.Finished, false, "a late answer must not unlock after the timeout")
+	handle:Close()
+	settle(1)
+end)
+
+test("API errors do not unlock", function()
+	local handle = Library:KeySystem({
+		Async = true, Cooldown = 0,
+		Api = { Url = "https://example.com", Request = function() error("network down") end },
+	})
+	settle(0.3)
+	submit(handle, "k")
+	eq(handle.Finished, false, "request error")
+	handle:Close()
+	settle(1)
+end)
+
+test("MaxAttempts locks the prompt", function()
+	local reason
+	local handle = Library:KeySystem({ Async = true, Key = "k", MaxAttempts = 2, Cooldown = 0, OnFail = function(r) reason = r end })
+	settle(0.3)
+	submit(handle, "1")
+	eq(handle.Finished, false, "first miss")
+	submit(handle, "2")
+	settle(2)
+	eq(handle.Finished, true, "second miss ends it")
+	eq(handle.Ok, false, "failed")
+	eq(reason, "Too many attempts", "reason")
+	handle:Submit("k")
+	settle(1)
+	eq(handle.Ok, false, "no way back in after the lock")
+end)
+
+test("Cooldown blocks rapid attempts", function()
+	local handle = Library:KeySystem({ Async = true, Key = "k", Cooldown = 60 })
+	settle(0.3)
+	handle:Submit("1")
+	settle(0.2)
+	handle:Submit("2")
+	settle(0.2)
+	eq(handle.Attempts, 1, "second attempt was refused")
+	handle:Close()
+	settle(1)
+end)
+
+test("blocking mode returns ok, key", function()
+	local ok, key = "unset", nil
+	task.spawn(function()
+		ok, key = Library:KeySystem({
+			Key = "pass", Cooldown = 0,
+			OnReady = function(handle) handle:Submit("pass") end,
+		})
+	end)
+	settle(2)
+	eq(ok, true, "ok")
+	eq(key, "pass", "key")
+
+	local closedOk = "unset"
+	task.spawn(function()
+		closedOk = Library:KeySystem({ Key = "pass", OnReady = function(handle) handle:Close() end })
+	end)
+	settle(1)
+	eq(closedOk, false, "closing returns false")
+end)
+
+test("saved key skips the prompt; a stale one is forgotten", function()
+	if not (writefile and readfile and isfile and delfile) then
+		return
+	end
+	Library:ForgetKey("_crystall_test")
+	local first = Library:KeySystem({ Async = true, Key = "abc", SaveKey = true, Id = "_crystall_test", Cooldown = 0 })
+	settle(0.3)
+	submit(first, "abc")
+	eq(first.Ok, true, "accepted and saved")
+
+	local second = Library:KeySystem({ Async = true, Key = "abc", SaveKey = true, Id = "_crystall_test" })
+	settle(1)
+	eq(second.Ok, true, "saved key accepted without a prompt")
+	eq(second.Modal, nil, "no UI was built")
+
+	local third = Library:KeySystem({ Async = true, Key = "changed", SaveKey = true, Id = "_crystall_test" })
+	settle(1)
+	eq(third.Finished, false, "a key that no longer matches shows the prompt again")
+	truthy(third.Modal, "prompt shown")
+	third:Close()
+	settle(1)
+	local fourth = Library:KeySystem({ Async = true, Key = "abc", SaveKey = true, Id = "_crystall_test" })
+	settle(1)
+	eq(fourth.Finished, false, "the stale key was deleted")
+	fourth:Close()
+	settle(1)
+	Library:ForgetKey("_crystall_test")
+end)
+
+test("a key system needs a key source", function()
+	throws(function() Library:KeySystem({}) end, "empty options")
+end)
+
 print("\n[Lifecycle]")
 
 test("destroying an element frees its flag and its window-maid slot", function()
@@ -513,6 +850,7 @@ test("Library:Destroy tears everything down", function()
 	eq(#Library.Windows, 0, "no windows")
 	eq(next(Library.Flags), nil, "no flags")
 	eq(Notifications.Active, 0, "no notifications")
+	eq(next(Library.Modals), nil, "no modals")
 end)
 
 ----------------------------------------------------------------------------------------------------

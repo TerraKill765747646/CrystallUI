@@ -191,21 +191,30 @@ function Theme:Unbind(inst)
 	Bindings[inst] = nil
 end
 
+local TWEENABLE = { Color3 = true, number = true, UDim2 = true, UDim = true, Vector2 = true }
+
 function Theme:Refresh(inst, animate)
 	local binding = Bindings[inst]
 	if not binding then
 		return
 	end
-	local goal = {}
+	local goal, direct = {}, {}
 	for k, v in binding do
-		goal[k] = Resolve(v)
-	end
-	if animate then
-		Animator:Tween(inst, goal, "Fast", self.Motion.ColorStyle)
-	else
-		for k, v in goal do
-			inst[k] = v
+		local value = Resolve(v)
+		if value ~= nil then
+			-- ColorSequence, strings, enums and the like can't be tweened, they are assigned directly
+			if animate and TWEENABLE[typeof(value)] then
+				goal[k] = value
+			else
+				direct[k] = value
+			end
 		end
+	end
+	for k, v in direct do
+		inst[k] = v
+	end
+	if next(goal) ~= nil then
+		Animator:Tween(inst, goal, "Fast", self.Motion.ColorStyle)
 	end
 end
 
