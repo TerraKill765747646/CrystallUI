@@ -16,15 +16,17 @@ if type(Library) ~= "table" then
 end
 
 ----------------------------------------------------------------------------------------------------
--- Optional key prompt. Flip USE_KEY_SYSTEM to try it: the script waits here until the key is accepted.
+-- Key prompt: the script waits here, the window below is only built once a key is accepted.
+-- The demo key is shown in the dialog itself. Set USE_KEY_SYSTEM to false to skip the prompt.
 ----------------------------------------------------------------------------------------------------
-local USE_KEY_SYSTEM = false
+local USE_KEY_SYSTEM = true
 
 if USE_KEY_SYSTEM then
 	local ok = Library:KeySystem({
 		Title = "Crystall Hub",
 		Subtitle = "Enter your key to continue.",
-		SaveKey = true, -- remembered on disk, the prompt is skipped next time
+		Note = "Demo key: DEMO-KEY-1234",
+		SaveKey = false, -- true remembers a valid key on disk and skips the prompt next time
 
 		-- 1) fixed keys (any of these three sources can be combined)
 		Keys = { "DEMO-KEY-1234" },
@@ -43,7 +45,7 @@ if USE_KEY_SYSTEM then
 		MaxAttempts = 5,
 	})
 	if not ok then
-		return -- window closed or too many attempts
+		return -- the prompt was closed or the attempts ran out
 	end
 end
 
@@ -320,4 +322,5 @@ Danger:CreateButton({
 })
 
 Window:SelectTab("Controls")
+
 Library:Notify({ Title = "Crystall UI", Content = "Press RightShift to hide the window.", Type = "Info" })

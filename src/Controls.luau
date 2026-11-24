@@ -199,15 +199,9 @@ function Elements:CreateButton(o)
 	local row, title, stroke = Row(self, o)
 	local api, maid = Element(self, row, title, o)
 	local hit = Hit(row)
-	Core.Text({
-		Text = "›",
-		TextSize = 18,
-		TextXAlignment = Enum.TextXAlignment.Right,
-		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -12, 0, 0),
-		Size = UDim2.new(0, 20, 1, 0),
-		Theme = { TextColor3 = "SubText" },
-		Parent = row,
+	Core.Chevron(row, 8, "SubText", 0, {
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -14, 0.5, 0),
 	})
 	Hover(maid, hit, row)
 	maid:Give(hit.MouseButton1Click:Connect(function()
@@ -353,16 +347,7 @@ function Elements:CreateChecklist(o)
 			Parent = item,
 		})
 		Core.Corner(box, 4)
-		local check = Core.Text({
-			Text = "✓",
-			Font = Enum.Font.GothamBold,
-			TextSize = 12,
-			TextXAlignment = Enum.TextXAlignment.Center,
-			Size = UDim2.fromScale(1, 1),
-			Visible = false,
-			Theme = { TextColor3 = "AccentText" },
-			Parent = box,
-		})
+		local check = Core.Check(box, 16, "AccentText", { Visible = false })
 		Core.Text({
 			Text = tostring(name),
 			TextSize = 13,
@@ -552,15 +537,9 @@ function Elements:CreateDropdown(o)
 		Theme = { TextColor3 = "SubText" },
 		Parent = row,
 	})
-	local chevron = Core.Text({
-		Text = "▾",
-		TextSize = 14,
-		TextXAlignment = Enum.TextXAlignment.Center,
-		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -8, 0, 0),
-		Size = UDim2.fromOffset(20, 38),
-		Theme = { TextColor3 = "SubText" },
-		Parent = row,
+	local chevron = Core.Chevron(row, 10, "SubText", 90, {
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -14, 0, 19),
 	})
 
 	local pop = Popup(self, row, api, maid)
@@ -625,7 +604,7 @@ function Elements:CreateDropdown(o)
 		list.Size = UDim2.new(1, -16, 0, listHeight)
 		pop.Height = listTop + listHeight + 8
 		pop:Update(api.Open)
-		Animator:Tween(chevron, { Rotation = api.Open and 180 or 0 }, "Fast")
+		Animator:Tween(chevron, { Rotation = if api.Open then 270 else 90 }, "Fast")
 	end
 
 	local function Paint()

@@ -52,13 +52,27 @@ local function Show(o, handle)
 	})
 	Core.Corner(card, 8)
 	Core.Stroke(card)
-	New("Frame", { Size = UDim2.new(0, 3, 1, 0), Theme = { BackgroundColor3 = key }, Parent = card })
+
+	-- The coloured edge: an accent shape under a surface-coloured face that starts 3px further in.
+	-- Both have the card's corner radius, so the accent shows as a crescent that follows the rounded
+	-- corners exactly instead of a straight bar sticking out of them.
+	local accent = New("Frame", { Size = UDim2.new(0, 24, 1, 0), Theme = { BackgroundColor3 = key }, Parent = card })
+	Core.Corner(accent, 8)
+	local face = New("Frame", {
+		Position = UDim2.fromOffset(3, 0),
+		Size = UDim2.new(1, -3, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		ZIndex = 2,
+		Theme = { BackgroundColor3 = "Surface" },
+		Parent = card,
+	})
+	Core.Corner(face, 8)
 
 	local inner = New("Frame", {
 		Size = UDim2.new(1, 0, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		BackgroundTransparency = 1,
-		Parent = card,
+		Parent = face,
 	})
 	Core.Padding(inner, 10, 12, 12, 16)
 	Core.List(inner, 4)
@@ -109,18 +123,17 @@ local function Show(o, handle)
 	end
 
 	local closeButton = New("TextButton", {
-		Text = "×",
-		Font = Enum.Font.GothamBold,
-		TextSize = 14,
+		Name = "Close",
+		Text = "",
 		AutoButtonColor = false,
 		BackgroundTransparency = 1,
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, -6, 0, 6),
 		Size = UDim2.fromOffset(18, 18),
-		ZIndex = 2,
-		Theme = { TextColor3 = "SubText" },
+		ZIndex = 3,
 		Parent = card,
 	})
+	Core.Cross(closeButton, 8, "SubText")
 	closeButton.MouseButton1Click:Connect(function()
 		handle:Close()
 	end)
@@ -132,14 +145,16 @@ local function Show(o, handle)
 		duration = if duration and duration > 0 then duration else 5
 	end
 
+	-- the timer line floats inside the face with a margin: away from the accent edge and the rounded corners
 	local progress = New("Frame", {
 		AnchorPoint = Vector2.new(0, 1),
-		Position = UDim2.fromScale(0, 1),
-		Size = UDim2.new(1, 0, 0, 2),
+		Position = UDim2.new(0, 16, 1, -6),
+		Size = UDim2.new(1, -32, 0, 2),
 		Visible = duration ~= nil,
 		Theme = { BackgroundColor3 = key },
-		Parent = card,
+		Parent = face,
 	})
+	Core.Corner(progress, 1)
 
 	task.wait()
 	if handle.Closed then

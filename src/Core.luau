@@ -8,7 +8,7 @@ local HttpService = game:GetService("HttpService")
 local CoreGui = game:GetService("CoreGui")
 
 local Core = { Theme = Theme, Animator = Animator, UIS = UserInputService }
-local Library = { Flags = {}, Windows = {}, Modals = {}, Theme = Theme, Version = "1.1.0" }
+local Library = { Flags = {}, Windows = {}, Modals = {}, Theme = Theme, Version = "1.2.0" }
 Core.Library = Library
 
 local Maid = {}
@@ -139,6 +139,91 @@ function Core.List(parent, padding, direction)
 		FillDirection = direction or Enum.FillDirection.Vertical,
 		Parent = parent,
 	})
+end
+
+----------------------------------------------------------------------------------------------------
+-- Vector glyphs. Font glyphs (◆ › ▾ × ✓) never sit exactly in the middle of their box and look
+-- different in every font, so the UI draws its icons from rounded bars and rotated squares.
+----------------------------------------------------------------------------------------------------
+local function Bar(parent, x, y, length, thickness, rotation, key)
+	local bar = Core.New("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromOffset(x, y),
+		Size = UDim2.fromOffset(length, thickness),
+		Rotation = rotation,
+		Theme = { BackgroundColor3 = key },
+		Parent = parent,
+	})
+	Core.Corner(bar, thickness / 2)
+	return bar
+end
+
+local function GlyphBox(parent, size, props)
+	local box = Core.New("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(size, size),
+		BackgroundTransparency = 1,
+		Parent = parent,
+	})
+	for k, v in props or {} do
+		box[k] = v
+	end
+	return box
+end
+
+-- `size` is the visible width of the diamond (the diagonal of the rotated square)
+function Core.Diamond(parent, size, key, props)
+	local side = size / 1.4142
+	local diamond = Core.New("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(side, side),
+		Rotation = 45,
+		Theme = { BackgroundColor3 = key or "Accent" },
+		Parent = parent,
+	})
+	Core.Corner(diamond, side * 0.16)
+	for k, v in props or {} do
+		diamond[k] = v
+	end
+	return diamond
+end
+
+-- points right at rotation 0, rotation 90 points down
+function Core.Chevron(parent, size, key, rotation, props)
+	local box = GlyphBox(parent, size, props)
+	box.Rotation = rotation or 0
+	local arm, thickness = size * 0.6, math.max(1.5, size * 0.2)
+	Bar(box, size * 0.5, size * 0.3, arm, thickness, 45, key or "SubText")
+	Bar(box, size * 0.5, size * 0.7, arm, thickness, -45, key or "SubText")
+	return box
+end
+
+function Core.Cross(parent, size, key, props)
+	local box = GlyphBox(parent, size, props)
+	local length, thickness = size * 1.25, math.max(1.5, size * 0.18)
+	Bar(box, size / 2, size / 2, length, thickness, 45, key or "SubText")
+	Bar(box, size / 2, size / 2, length, thickness, -45, key or "SubText")
+	return box
+end
+
+-- returns the box and its vertical bar (hide it to get a minus)
+function Core.Plus(parent, size, key, props)
+	local box = GlyphBox(parent, size, props)
+	local thickness = math.max(1.5, size * 0.18)
+	Bar(box, size / 2, size / 2, size, thickness, 0, key or "SubText")
+	local vertical = Bar(box, size / 2, size / 2, size, thickness, 90, key or "SubText")
+	return box, vertical
+end
+
+function Core.Check(parent, size, key, props)
+	local box = GlyphBox(parent, size, props)
+	local k = size / 16
+	local thickness = math.max(1.5, 2 * k)
+	Bar(box, 5.75 * k, 9.75 * k, 4.4 * k, thickness, 45, key or "AccentText")
+	Bar(box, 9.25 * k, 8.25 * k, 8 * k, thickness, -50.7, key or "AccentText")
+	return box
 end
 
 function Core.Tween(inst, props, speed, style)
@@ -325,6 +410,7 @@ function Core.CreateModal(o)
 	local dim = New("TextButton", {
 		Text = "",
 		AutoButtonColor = false,
+		Active = true,
 		Size = UDim2.fromScale(1, 1),
 		BackgroundTransparency = 1,
 		Theme = { BackgroundColor3 = "Background" },
@@ -360,15 +446,19 @@ function Core.CreateModal(o)
 	})
 	Core.Corner(badge, 24)
 	Core.Stroke(badge, "Accent", 2)
-	Core.Text({
-		Text = o.Icon or "◆",
-		Font = Enum.Font.GothamBold,
-		TextSize = 22,
-		TextXAlignment = Enum.TextXAlignment.Center,
-		Size = UDim2.fromScale(1, 1),
-		Theme = { TextColor3 = "Accent" },
-		Parent = badge,
-	})
+	if type(o.Icon) == "string" then
+		Core.Text({
+			Text = o.Icon,
+			Font = Enum.Font.GothamBold,
+			TextSize = 22,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			Size = UDim2.fromScale(1, 1),
+			Theme = { TextColor3 = "Accent" },
+			Parent = badge,
+		})
+	else
+		Core.Diamond(badge, 20, "Accent")
+	end
 	Core.Text({
 		Text = o.Title or "",
 		Font = Enum.Font.GothamBold,
@@ -404,18 +494,17 @@ function Core.CreateModal(o)
 
 	if o.Closable ~= false then
 		local close = New("TextButton", {
-			Text = "×",
-			Font = Enum.Font.GothamBold,
-			TextSize = 18,
+			Name = "Close",
+			Text = "",
 			AutoButtonColor = false,
 			BackgroundTransparency = 1,
 			AnchorPoint = Vector2.new(1, 0),
 			Position = UDim2.new(1, -8, 0, 8),
 			Size = UDim2.fromOffset(24, 24),
 			ZIndex = 3,
-			Theme = { TextColor3 = "SubText" },
 			Parent = card,
 		})
+		Core.Cross(close, 10, "SubText")
 		maid:Give(close.MouseButton1Click:Connect(function()
 			modal:Close()
 		end))
@@ -581,6 +670,8 @@ Core.IsPointer = IsPointer
 -- Floating round button that shows/hides the window. Built for touch devices where there is no
 -- toggle key: tap toggles, drag moves it, on release it snaps to the nearest screen edge.
 local DRAG_THRESHOLD = 8
+-- pages stop a few pixels short of the window's top and bottom, so their scroll bars never touch the rounded corners
+local PAGE_INSET = 6
 
 local function BuildToggleButton(win, o)
 	local setting = o.MobileButton
@@ -593,45 +684,64 @@ local function BuildToggleButton(win, o)
 
 	local gui, maid = win.Gui, win.Maid
 	local size, margin = 46, 12
-	local side, curY, snap = "left", nil, nil
+	local half = size / 2
+	local side, snap = "left", nil
+	local customIcon = type(o.ToggleIcon) == "string"
 
 	local button = Core.New("TextButton", {
 		Name = "ToggleButton",
-		Text = o.ToggleIcon or "◆",
+		Text = if customIcon then o.ToggleIcon else "",
 		Font = Enum.Font.GothamBold,
 		TextSize = 20,
 		AutoButtonColor = false,
-		Position = UDim2.new(0, margin, 0.4, 0),
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0, margin + half, 0.4, 0),
 		Size = UDim2.fromOffset(size, size),
 		ZIndex = 20,
 		Theme = { BackgroundColor3 = "Surface", TextColor3 = "Accent" },
 		Parent = gui,
 	})
-	Core.Corner(button, size / 2)
+	Core.Corner(button, half)
 	Core.Stroke(button, "Accent", 2)
-	local scale = Core.New("UIScale", { Parent = button })
+	if not customIcon then
+		Core.Diamond(button, 16, "Accent")
+	end
 	win.ToggleButton = button
 
-	local function EdgeX()
-		return if side == "left" then margin else math.max(margin, gui.AbsoluteSize.X - size - margin)
+	-- Everything below works in the gui's own coordinate space: the button's Position is the only
+	-- source of truth and the pointer is only ever used as a delta. AbsolutePosition is never read,
+	-- so engine layout timing, safe areas and the topbar inset can't shift the button away from
+	-- the finger.
+	local function Clamp(v, axis)
+		local lo = margin + half
+		return math.clamp(v, lo, math.max(lo, gui.AbsoluteSize[axis] - margin - half))
 	end
-	local function ClampY(y)
-		return math.clamp(y, margin, math.max(margin, gui.AbsoluteSize.Y - size - margin))
+	local function EdgeX()
+		return if side == "left" then margin + half else math.max(margin + half, gui.AbsoluteSize.X - margin - half)
+	end
+	local function Resize(pixels)
+		Animator:Tween(button, { Size = UDim2.fromOffset(pixels, pixels) }, "Fast")
+	end
+	-- first use: swap the 0.4 height scale for the equivalent offset, nothing moves on screen
+	local function Settle()
+		if button.Position.Y.Scale ~= 0 then
+			button.Position = UDim2.fromOffset(button.Position.X.Offset, Clamp(gui.AbsoluteSize.Y * button.Position.Y.Scale, "Y"))
+		end
 	end
 
-	local dragging, moved, startInput, startX, startY, curX = false, false, nil, 0, 0, 0
+	local dragging, moved, startInput, startX, startY = false, false, nil, 0, 0
 	maid:Give(button.InputBegan:Connect(function(input)
 		if not IsPointer(input) or dragging then
 			return
 		end
 		if snap then
-			snap:Cancel()
+			snap:Cancel() -- stops where it is, the property already holds the in-between position
 			snap = nil
 		end
-		local abs = button.AbsolutePosition
-		dragging, moved, startInput, startX, startY = true, false, input.Position, abs.X, abs.Y
-		curX, curY = abs.X, abs.Y
-		Animator:Tween(scale, { Scale = 0.9 }, "Fast")
+		Settle()
+		dragging, moved, startInput = true, false, input.Position
+		startX, startY = button.Position.X.Offset, button.Position.Y.Offset
+		Resize(size - 6)
 	end))
 	maid:Give(UserInputService.InputChanged:Connect(function(input)
 		if not dragging then
@@ -646,35 +756,31 @@ local function BuildToggleButton(win, o)
 				return
 			end
 			moved = true
-			Animator:Tween(scale, { Scale = 1.1 }, "Fast")
+			Resize(size + 4)
 		end
-		local view = gui.AbsoluteSize
-		curX = math.clamp(startX + delta.X, margin, math.max(margin, view.X - size - margin))
-		curY = ClampY(startY + delta.Y)
-		button.Position = UDim2.fromOffset(curX, curY)
+		button.Position = UDim2.fromOffset(Clamp(startX + delta.X, "X"), Clamp(startY + delta.Y, "Y"))
 	end))
 	maid:Give(UserInputService.InputEnded:Connect(function(input)
 		if not dragging or not IsPointer(input) then
 			return
 		end
 		dragging = false
-		Animator:Tween(scale, { Scale = 1 }, "Fast")
+		Resize(size)
 		if not moved then
 			win:Toggle()
 			return
 		end
-		side = if curX + size / 2 < gui.AbsoluteSize.X / 2 then "left" else "right"
-		snap = Animator:Tween(button, { Position = UDim2.fromOffset(EdgeX(), curY) })
+		side = if button.Position.X.Offset < gui.AbsoluteSize.X / 2 then "left" else "right"
+		snap = Animator:Tween(button, { Position = UDim2.fromOffset(EdgeX(), button.Position.Y.Offset) })
 	end))
 	-- keep it reachable when the viewport changes (rotation, window resize)
 	maid:Give(gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
-		if curY then
+		if button.Position.Y.Scale == 0 then
 			if snap then
 				snap:Cancel()
 				snap = nil
 			end
-			curY = ClampY(curY)
-			button.Position = UDim2.fromOffset(EdgeX(), curY)
+			button.Position = UDim2.fromOffset(EdgeX(), Clamp(button.Position.Y.Offset, "Y"))
 		end
 	end))
 
@@ -715,11 +821,10 @@ function Library:CreateWindow(o)
 
 	local top = New("Frame", { Name = "TopBar", Size = UDim2.new(1, 0, 0, 42), BackgroundTransparency = 1, Parent = main })
 	local hasSub = o.Subtitle ~= nil
-	local icon = if o.Icon == false then nil else (o.Icon or "◆")
-	local textX = if icon then 38 else 16
-	if icon then
+	local textX = if o.Icon == false then 16 else 38
+	if type(o.Icon) == "string" then
 		Core.Text({
-			Text = icon,
+			Text = o.Icon,
 			Font = Enum.Font.GothamBold,
 			TextSize = 17,
 			TextXAlignment = Enum.TextXAlignment.Center,
@@ -728,6 +833,9 @@ function Library:CreateWindow(o)
 			Theme = { TextColor3 = "Accent" },
 			Parent = top,
 		})
+	elseif o.Icon ~= false then
+		local holder = New("Frame", { Position = UDim2.fromOffset(12, 0), Size = UDim2.fromOffset(22, 42), BackgroundTransparency = 1, Parent = top })
+		Core.Diamond(holder, 13, "Accent")
 	end
 	Core.Text({
 		Text = o.Name or "Crystall UI",
@@ -748,23 +856,26 @@ function Library:CreateWindow(o)
 		})
 	end
 
-	local function TopButton(text, x)
+	local function TopButton(x)
 		local button = New("TextButton", {
-			Text = text,
-			Font = Enum.Font.GothamBold,
-			TextSize = 14,
+			Text = "",
 			AutoButtonColor = false,
 			AnchorPoint = Vector2.new(1, 0.5),
 			Position = UDim2.new(1, x, 0.5, 0),
 			Size = UDim2.fromOffset(26, 26),
-			Theme = { BackgroundColor3 = "Elevated", TextColor3 = "SubText" },
+			Theme = { BackgroundColor3 = "Elevated" },
 			Parent = top,
 		})
 		Core.Corner(button, 6)
 		return button
 	end
-	local closeButton = TopButton("×", -10)
-	local minButton = TopButton("–", -42)
+	local closeButton = TopButton(-10)
+	closeButton.Name = "Close"
+	Core.Cross(closeButton, 9, "SubText")
+	local minButton = TopButton(-42)
+	minButton.Name = "Minimize"
+	local _, minVertical = Core.Plus(minButton, 9, "SubText")
+	minVertical.Visible = false -- a minus while the window is open, a plus when it is minimized
 	New("Frame", { Position = UDim2.fromOffset(0, 42), Size = UDim2.new(1, 0, 0, 1), Theme = { BackgroundColor3 = "Stroke" }, Parent = main })
 	-- accent line that fades into the divider
 	local glow = New("Frame", {
@@ -784,7 +895,17 @@ function Library:CreateWindow(o)
 	})
 
 	local body = New("Frame", { Name = "Body", Position = UDim2.fromOffset(0, 43), Size = UDim2.new(1, 0, 1, -43), BackgroundTransparency = 1, Parent = main })
-	local sidebar = New("Frame", { Size = UDim2.new(0, 160, 1, 0), Theme = { BackgroundColor3 = "Surface" }, Parent = body })
+	-- The fill is taller and wider than the clip box, so of its four rounded corners only the
+	-- bottom-left one is visible. It has the window's own radius and sits exactly in the window's
+	-- corner, instead of a square corner cutting through the rounded one.
+	local sidebar = New("Frame", { Size = UDim2.new(0, 160, 1, 0), BackgroundTransparency = 1, ClipsDescendants = true, Parent = body })
+	local sidebarFill = New("Frame", {
+		Position = UDim2.fromOffset(0, -12),
+		Size = UDim2.new(1, 12, 1, 12),
+		Theme = { BackgroundColor3 = "Surface" },
+		Parent = sidebar,
+	})
+	Core.Corner(sidebarFill, 10)
 
 	local searchHeight = if o.Search == false then 0 else 38
 	local search
@@ -838,7 +959,7 @@ function Library:CreateWindow(o)
 
 	win.Gui, win.Main, win.Scale, win.Body = gui, main, scale, body
 	win.Sidebar, win.TabList, win.Indicator, win.Content = sidebar, tabList, indicator, content
-	win.MinButton = minButton
+	win.MinButton, win.MinVertical = minButton, minVertical
 	BuildToggleButton(win, o)
 
 	maid:Give(tabList:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
@@ -984,7 +1105,7 @@ function Window:Minimize(state)
 	if state then
 		self:_ClosePopups()
 	end
-	self.MinButton.Text = state and "+" or "–"
+	self.MinVertical.Visible = state
 	local size = self.Size
 	Animator:Tween(self.Main, { Size = if state then UDim2.new(size.X.Scale, size.X.Offset, 0, 42) else size })
 end
@@ -1050,7 +1171,8 @@ function Window:CreateTab(name, icon)
 	})
 	local page = New("ScrollingFrame", {
 		Visible = false,
-		Size = UDim2.fromScale(1, 1),
+		Position = UDim2.fromOffset(0, PAGE_INSET),
+		Size = UDim2.new(1, 0, 1, -PAGE_INSET * 2),
 		BackgroundTransparency = 1,
 		ScrollBarThickness = 3,
 		CanvasSize = UDim2.new(),
@@ -1097,8 +1219,8 @@ function Tab:Select()
 	Animator:Tween(self.Button, { BackgroundTransparency = 0 }, "Fast")
 	Theme:Refresh(self.Label, true)
 	self.Page.Visible = true
-	self.Page.Position = UDim2.fromOffset(0, Theme.Motion.Offset)
-	Animator:Tween(self.Page, { Position = UDim2.new() })
+	self.Page.Position = UDim2.fromOffset(0, PAGE_INSET + Theme.Motion.Offset)
+	Animator:Tween(self.Page, { Position = UDim2.fromOffset(0, PAGE_INSET) })
 	task.defer(win._UpdateIndicator, win, previous ~= nil)
 end
 
@@ -1123,13 +1245,14 @@ function Tab:CreateSection(name, o)
 		LayoutOrder = 0,
 		Parent = frame,
 	})
-	New("Frame", {
+	local mark = New("Frame", {
 		AnchorPoint = Vector2.new(0, 0.5),
 		Position = UDim2.new(0, 0, 0.5, 0),
 		Size = UDim2.fromOffset(3, 11),
 		Theme = { BackgroundColor3 = "Accent" },
 		Parent = header,
 	})
+	Core.Corner(mark, 2)
 	section.Title = Core.Text({
 		Text = string.upper(name),
 		Font = Enum.Font.GothamBold,
@@ -1150,19 +1273,13 @@ function Tab:CreateSection(name, o)
 	section.Frame, section.Header, section.Container = frame, header, container
 
 	if o.Collapsible then
-		local chevron = Core.Text({
-			Text = "▾",
-			TextSize = 14,
-			TextXAlignment = Enum.TextXAlignment.Center,
-			AnchorPoint = Vector2.new(1, 0),
-			Position = UDim2.new(1, -2, 0, 0),
-			Size = UDim2.new(0, 20, 1, 0),
-			Theme = { TextColor3 = "SubText" },
-			Parent = header,
+		local chevron = Core.Chevron(header, 9, "SubText", 90, {
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -6, 0.5, 0),
 		})
 		section._apply = function()
 			container.Visible = not section.Collapsed
-			Animator:Tween(chevron, { Rotation = section.Collapsed and -90 or 0 }, "Fast")
+			Animator:Tween(chevron, { Rotation = if section.Collapsed then 0 else 90 }, "Fast")
 		end
 		self.Window.Maid:Give(header.MouseButton1Click:Connect(function()
 			section:SetCollapsed(not section.Collapsed)
