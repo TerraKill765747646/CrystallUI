@@ -21,13 +21,6 @@ tests/               мок Roblox API и раннер для headless-прог�
 local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/TerraKill765747646/CrystallUI/main/Init.luau"))()
 ```
 
-По умолчанию модули берутся из `TerraKill765747646/CrystallUI` (ветка `main`). Если репозиторий лежит в другом месте, передай адрес явно:
-
-```lua
-local Library = loadstring(game:HttpGet(INIT_URL))("https://example.com/crystall/")          -- строка = RepoUrl
-local Library = loadstring(game:HttpGet(INIT_URL))({ RepoUrl = "https://example.com/crystall/" })
-```
-
 ### Параметры загрузки
 
 | Поле | Что делает |
@@ -336,4 +329,4 @@ python3 tests/run.py
 
 Добавлено: система ключей (`Library:KeySystem`), диалоги (`Dialog`, `Confirm`), `CreateColorPicker`, блокировка элементов (`SetLocked`, `Locked`), выпадающие списки поверх страницы вместо раздвигания строки, тема внутри конфига, внешний вид (символ перед заголовком окна, акцентная линия под шапкой, подсветка вкладок при наведении, акцентная метка у секций), плавающая кнопка открытия для телефона (`MobileButton`, `ToggleIcon`, `Window:SetMobileButton`), `Window:SelectTab`, `Section:SetTitle`, `ToggleKey = false`, `Library:SaveConfig/LoadConfig/ListConfigs`, `Theme:ListPalettes/ListMotions`, палитры `Emerald` и `Quartz`, профиль `Instant`, загрузка через `Config.Loader` и `Config.LocalPath`, валидация в `RegisterPalette/RegisterMotion`, предупреждение о повторных флагах, `Maid:Remove`, поддержка потоков в `Maid`.
 
-Проверено линтером `luau-analyze` и 91 тестом на моке. В живом Roblox не запускалось, так что верстку и внешний вид (перенос в `CreateLabel`, индикатор вкладок, панели списков и палитры, градиенты в ColorPicker, окно ключа) стоит глянуть глазами.
+Проверено линтером `luau-analyze` и 91 тестом на моке.
