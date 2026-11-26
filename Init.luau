@@ -63,6 +63,7 @@ end
 local Theme = Import("src/ThemeEngine")
 local Core = Import("src/Core")
 local Notifications = Import("src/Notifications")
+Import("src/Warnings")
 local Controls = Import("src/Controls")
 local KeySystem = Import("src/KeySystem")
 

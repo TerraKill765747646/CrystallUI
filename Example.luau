@@ -223,6 +223,111 @@ Theme:CreateButton({
 })
 
 ----------------------------------------------------------------------------------------------------
+-- Warnings: the same Warning option works on buttons, toggles, dropdowns and checklists
+----------------------------------------------------------------------------------------------------
+local Warn = Window:CreateTab("Warnings")
+local PerControl = Warn:CreateSection("On a control")
+
+-- BEFORE: asks first. Cancel (or the X) leaves everything as it was. Toggles ask when switched on.
+PerControl:CreateToggle({
+	Name = "Before: confirm, 3s lock, remembered",
+	Callback = function(value)
+		print("Risky feature:", value)
+	end,
+	Warning = {
+		Id = "demo_risky",
+		Title = "Risky feature",
+		Content = "This can get your account flagged. The Continue button unlocks in a few seconds.",
+		Level = "Danger", -- Info | Success | Warning | Danger
+		Delay = 3,
+		Remember = true, -- adds a "Don't ask again" tick box, kept on disk
+	},
+})
+
+-- CHECK: your own condition, runs before the action. Return false and a reason to stop it.
+PerControl:CreateButton({
+	Name = "Check: needs 'Enabled' (Controls tab)",
+	Callback = function()
+		Library:Notify({ Title = "Check passed", Content = "The action ran.", Type = "Success", Duration = 3 })
+	end,
+	Warning = {
+		Mode = "Check",
+		Level = "Warning",
+		Check = function()
+			local enabled = Library.Flags.enabled
+			return enabled ~= nil and enabled:Get() == true, "Turn on 'Enabled' on the Controls tab first."
+		end,
+	},
+})
+
+-- AFTER: the action runs, then a notice. Once = only the first time this session.
+PerControl:CreateButton({
+	Name = "After: notice once it ran (first time only)",
+	Callback = function()
+		print("action ran")
+	end,
+	Warning = { Mode = "After", Once = true, Level = "Success", Title = "Done", Content = "That was applied." },
+})
+
+-- WHEN: the warning only applies to some values.
+PerControl:CreateDropdown({
+	Name = "When: only 'Reckless' asks",
+	Options = { "Safe", "Normal", "Reckless" },
+	CurrentOption = "Safe",
+	Warning = {
+		When = function(ctx)
+			return ctx.Value == "Reckless"
+		end,
+		Level = "Danger",
+		Title = "Reckless mode",
+		Content = function(ctx)
+			return "You picked " .. ctx.Value .. ". Nothing will protect you."
+		end,
+	},
+})
+
+local FromCode = Warn:CreateSection("From code")
+
+FromCode:CreateButton({
+	Name = "Library:Warn (one-off notice)",
+	Callback = function()
+		Library:Warn({ Title = "Heads up", Content = "A one-off notice, no control involved.", Level = "Info" })
+	end,
+})
+
+FromCode:CreateButton({
+	Name = "Library:Guard (confirm, then run)",
+	Callback = function()
+		local ran = Library:Guard({ Title = "Delete everything?", Content = "There is no undo.", Level = "Danger", Yes = "Delete", Delay = 2 }, function()
+			Library:Notify({ Title = "Deleted", Content = "(nothing, it was a demo)", Type = "Success", Duration = 3 })
+		end, { Name = "demo" })
+		print("ran:", ran)
+	end,
+})
+
+FromCode:CreateButton({
+	Name = "Show the warning log",
+	Callback = function()
+		local log = Library:GetWarningLog()
+		local last = log[#log]
+		Library:Notify({
+			Title = "Warning log",
+			Content = #log .. " entries" .. (if last then ", last: " .. last.Decision .. " (" .. tostring(last.Source) .. ")" else ""),
+			Duration = 4,
+		})
+	end,
+})
+
+FromCode:CreateToggle({
+	Name = "Warnings enabled",
+	CurrentValue = true,
+	Callback = function(value)
+		-- off: confirmations are accepted automatically and notices are skipped, blocking checks stay
+		Library:SetWarnings(value)
+	end,
+})
+
+----------------------------------------------------------------------------------------------------
 -- Config + notifications
 ----------------------------------------------------------------------------------------------------
 local Settings = Window:CreateTab("Settings")

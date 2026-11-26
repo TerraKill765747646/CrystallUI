@@ -194,6 +194,30 @@ local function Popup(self, row, api, maid)
 	return pop
 end
 
+-- Runs a user-initiated change through the element's `Warning` option (see src/Warnings.luau).
+-- `apply` only runs when nothing blocked the action. Programmatic Set() calls and config imports
+-- never go through here, so they never pop a dialog. A second click while a dialog is already open
+-- for the same element is ignored.
+local function Guarded(api, o, ctx, apply)
+	if not o.Warning then
+		apply()
+		return
+	end
+	if api._guarding then
+		return
+	end
+	api._guarding = true
+	ctx.Name = ctx.Name or o.Name
+	ctx.Element = api
+	task.spawn(function()
+		local ok, err = pcall(Core.Warnings.Guard, Core.Warnings, o.Warning, ctx, apply, o.Flag or o.Name)
+		api._guarding = false
+		if not ok then
+			warn("[CrystallUI] Warning failed: " .. tostring(err))
+		end
+	end)
+end
+
 function Elements:CreateButton(o)
 	o = o or {}
 	local row, title, stroke = Row(self, o)
@@ -211,7 +235,9 @@ function Elements:CreateButton(o)
 				Theme:Refresh(stroke, true)
 			end
 		end)
-		Fire(o.Callback)
+		Guarded(api, o, { Action = "Click" }, function()
+			Fire(o.Callback)
+		end)
 	end))
 	return api
 end
@@ -266,7 +292,10 @@ function Elements:CreateToggle(o)
 
 	Hover(maid, hit, row)
 	maid:Give(hit.MouseButton1Click:Connect(function()
-		api:Set(not api.Value)
+		local nextValue = not api.Value
+		Guarded(api, o, { Action = if nextValue then "Enable" else "Disable", Value = nextValue, Old = api.Value }, function()
+			api:Set(nextValue)
+		end)
 	end))
 	api:Set(api.Value, true)
 	return api
@@ -358,10 +387,13 @@ function Elements:CreateChecklist(o)
 		})
 		boxes[name] = { Box = box, Check = check }
 		maid:Give(item.MouseButton1Click:Connect(function()
-			api.Selected[name] = not api.Selected[name] or nil
-			Paint(name)
-			api.Value = api:GetSelected()
-			Fire(o.Callback, api.Value)
+			local picking = not api.Selected[name]
+			Guarded(api, o, { Action = if picking then "Select" else "Deselect", Value = name, Old = api:GetSelected() }, function()
+				api.Selected[name] = picking or nil
+				Paint(name)
+				api.Value = api:GetSelected()
+				Fire(o.Callback, api.Value)
+			end)
 		end))
 	end
 
@@ -648,16 +680,21 @@ function Elements:CreateDropdown(o)
 			Core.Corner(item, 5)
 			Core.Padding(item, 0, 8, 0, 8)
 			item.MouseButton1Click:Connect(function()
-				if multi then
-					selected[name] = not selected[name] or nil
-				else
-					table.clear(selected)
-					selected[name] = true
-					api.Open = false
+				local picking = if multi then not selected[name] else true
+				if not multi then
+					api.Open = false -- a single pick closes the list right away, even if a warning is still pending
 					Layout()
 				end
-				Paint()
-				Fire(o.Callback, api:Get())
+				Guarded(api, o, { Action = if picking then "Select" else "Deselect", Value = name, Old = api:Get() }, function()
+					if multi then
+						selected[name] = picking or nil
+					else
+						table.clear(selected)
+						selected[name] = true
+					end
+					Paint()
+					Fire(o.Callback, api:Get())
+				end)
 			end)
 			items[name] = item
 		end

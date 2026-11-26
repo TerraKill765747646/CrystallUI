@@ -140,6 +140,9 @@ local function runDue(limit)
 	clock = math.max(clock, limit)
 end
 
+-- threads started through task.spawn: only those may really yield in task.wait
+local spawned = setmetatable({}, { __mode = "k" })
+
 task = {
 	spawn = function(fn, ...)
 		if type(fn) == "thread" then
@@ -147,6 +150,7 @@ task = {
 			return fn
 		end
 		local co = coroutine.create(fn)
+		spawned[co] = true
 		local ok, err = coroutine.resume(co, ...)
 		if not ok then
 			print("[mock] error in spawned task: " .. tostring(err))
@@ -164,8 +168,21 @@ task = {
 			handle.live = false
 		end
 	end,
+	-- Inside a spawned task, wait really suspends the task until the virtual clock gets there (as in
+	-- the engine). On the main thread (the test runner) it advances the clock and runs what is due.
 	wait = function(t)
 		t = t or 0.03
+		local co = coroutine.running()
+		if spawned[co] then
+			schedule(t, function()
+				local ok, err = coroutine.resume(co)
+				if not ok then
+					print("[mock] error in resumed task: " .. tostring(err))
+				end
+			end)
+			coroutine.yield()
+			return t
+		end
 		runDue(clock + t)
 		return t
 	end,

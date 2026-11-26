@@ -8,7 +8,7 @@ local HttpService = game:GetService("HttpService")
 local CoreGui = game:GetService("CoreGui")
 
 local Core = { Theme = Theme, Animator = Animator, UIS = UserInputService }
-local Library = { Flags = {}, Windows = {}, Modals = {}, Theme = Theme, Version = "1.2.0" }
+local Library = { Flags = {}, Windows = {}, Modals = {}, Theme = Theme, Version = "1.3.0" }
 Core.Library = Library
 
 local Maid = {}
@@ -225,6 +225,28 @@ function Core.Check(parent, size, key, props)
 	Bar(box, 9.25 * k, 8.25 * k, 8 * k, thickness, -50.7, key or "AccentText")
 	return box
 end
+
+-- "!" (or "i" when inverted): a vertical bar and a dot
+function Core.Exclaim(parent, size, key, inverted)
+	local box = GlyphBox(parent, size)
+	local width = math.max(2, size * 0.14)
+	local barLength, dot = size * 0.46, width * 1.2
+	local barY, dotY = size * 0.33, size * 0.8
+	if inverted then
+		barY, dotY = size * 0.62, size * 0.2
+	end
+	Bar(box, size / 2, barY, barLength, width, 90, key)
+	Bar(box, size / 2, dotY, dot, dot, 0, key)
+	return box
+end
+
+-- Warning levels: theme colour, notification type and the glyph shown in dialogs
+Core.Levels = {
+	Info = { key = "Info", notify = "Info", glyph = "i", title = "Notice" },
+	Success = { key = "Success", notify = "Success", glyph = "check", title = "Done" },
+	Warning = { key = "Warning", notify = "Warning", glyph = "!", title = "Warning" },
+	Danger = { key = "Error", notify = "Error", glyph = "!", title = "Danger" },
+}
 
 function Core.Tween(inst, props, speed, style)
 	return Animator:Tween(inst, props, speed, style)
@@ -445,7 +467,9 @@ function Core.CreateModal(o)
 		Parent = inner,
 	})
 	Core.Corner(badge, 24)
-	Core.Stroke(badge, "Accent", 2)
+	local level = Core.Levels[o.Level]
+	local tone = if level then level.key else "Accent"
+	Core.Stroke(badge, tone, 2)
 	if type(o.Icon) == "string" then
 		Core.Text({
 			Text = o.Icon,
@@ -453,9 +477,13 @@ function Core.CreateModal(o)
 			TextSize = 22,
 			TextXAlignment = Enum.TextXAlignment.Center,
 			Size = UDim2.fromScale(1, 1),
-			Theme = { TextColor3 = "Accent" },
+			Theme = { TextColor3 = tone },
 			Parent = badge,
 		})
+	elseif level and level.glyph == "check" then
+		Core.Check(badge, 22, tone)
+	elseif level then
+		Core.Exclaim(badge, 22, tone, level.glyph == "i")
 	else
 		Core.Diamond(badge, 20, "Accent")
 	end
@@ -546,36 +574,114 @@ function Core.CreateModal(o)
 	return modal
 end
 
--- Library:Dialog({ Title, Content, Icon, Width, Closable, OnClose, Buttons = { { Name, Callback, Style, Keep } } })
+-- Library:Dialog({
+--	Title, Content, Icon, Level ("Info" | "Success" | "Warning" | "Danger"), Width, Closable, OnClose,
+--	Checkbox = "Don't ask again",   -- adds a tick box, read it from modal.Checked
+--	Buttons = { { Name, Callback, Style, Keep, Delay } },   -- Delay: seconds the button stays locked, with a countdown
+-- })
+-- modal:Press(name) does what a click on that button does (handy for automation and tests).
 function Library:Dialog(o)
 	o = o or {}
+	local New = Core.New
 	local modal = Core.CreateModal({
 		Title = o.Title or "Notice",
 		Subtitle = o.Content,
 		Icon = o.Icon,
+		Level = o.Level,
 		Width = o.Width,
 		Closable = o.Closable,
 		OnClose = o.OnClose,
 	})
+	modal.Checked = false
+
+	if o.Checkbox then
+		local row = New("TextButton", {
+			Text = "",
+			AutoButtonColor = false,
+			BackgroundTransparency = 1,
+			Size = UDim2.new(1, 0, 0, 24),
+			LayoutOrder = 50,
+			Parent = modal.Body,
+		})
+		local box = New("Frame", {
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.fromScale(0, 0.5),
+			Size = UDim2.fromOffset(16, 16),
+			Theme = {
+				BackgroundColor3 = function(p)
+					return if modal.Checked then p.Accent else p.Elevated
+				end,
+			},
+			Parent = row,
+		})
+		Core.Corner(box, 4)
+		Core.Stroke(box)
+		local tick = Core.Check(box, 16, "AccentText", { Visible = false })
+		Core.Text({
+			Text = tostring(o.Checkbox),
+			TextSize = 12,
+			Position = UDim2.fromOffset(24, 0),
+			Size = UDim2.new(1, -24, 1, 0),
+			Theme = { TextColor3 = "SubText" },
+			Parent = row,
+		})
+		row.MouseButton1Click:Connect(function()
+			modal.Checked = not modal.Checked
+			tick.Visible = modal.Checked
+			Theme:Refresh(box, true)
+		end)
+	end
+
 	local buttons = o.Buttons
 	if type(buttons) ~= "table" or #buttons == 0 then
 		buttons = { { Name = "OK" } }
 	end
 	local count = #buttons
-	local row = Core.New("Frame", { Size = UDim2.new(1, 0, 0, 36), BackgroundTransparency = 1, LayoutOrder = 100, Parent = modal.Body })
+	local row = New("Frame", { Size = UDim2.new(1, 0, 0, 36), BackgroundTransparency = 1, LayoutOrder = 100, Parent = modal.Body })
 	Core.List(row, 8, Enum.FillDirection.Horizontal)
+	local handlers = {}
 	for i, spec in buttons do
 		local style = spec.Style or (if i == count then "Primary" else "Default")
-		local button = Core.Button(row, spec.Name or "OK", style, {
+		local label = spec.Name or "OK"
+		local button = Core.Button(row, label, style, {
 			Size = UDim2.new(1 / count, -8 * (count - 1) / count, 1, 0),
 			LayoutOrder = i,
 		})
-		button.MouseButton1Click:Connect(function()
+		local locked = false
+		local delay = tonumber(spec.Delay)
+		if delay and delay > 0 then
+			locked = true
+			button.TextTransparency = 0.55
+			task.spawn(function()
+				local remaining = math.ceil(delay)
+				while remaining > 0 and not modal.Closed do
+					button.Text = label .. " (" .. remaining .. ")"
+					task.wait(1)
+					remaining -= 1
+				end
+				if not modal.Closed then
+					button.Text = label
+					button.TextTransparency = 0
+				end
+				locked = false
+			end)
+		end
+		local function Activate()
+			if locked or modal.Closed then
+				return false
+			end
 			Core.Fire(spec.Callback)
 			if not spec.Keep then
 				modal:Close()
 			end
-		end)
+			return true
+		end
+		handlers[label] = Activate
+		button.MouseButton1Click:Connect(Activate)
+	end
+	function modal:Press(name)
+		local handler = handlers[name]
+		return handler ~= nil and handler()
 	end
 	return modal
 end

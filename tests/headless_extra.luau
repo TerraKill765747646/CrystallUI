@@ -499,6 +499,215 @@ test("minimize button draws a minus and turns into a plus", function()
 	w:Destroy()
 end)
 
+local function modalButton(modal, prefix)
+	return Mock.Find(modal.Gui, function(i) return i:IsA("TextButton") and i.Text:sub(1, #prefix) == prefix end)
+end
+local function hitOf(element)
+	return Mock.Find(element.Instance, function(i) return i:IsA("TextButton") and i.ZIndex == 2 end)
+end
+local function dialogs()
+	local n = 0
+	for _ in Library.Modals do n += 1 end
+	return n
+end
+
+test("toggle Warning: the dialog decides, only turning ON asks", function()
+	local seen = {}
+	local toggle = section:CreateToggle({
+		Name = "Risky", Warning = { Title = "Sure?", Content = "Bad idea.", Level = "Danger" },
+		Callback = function(v) table.insert(seen, v) end,
+	})
+	local hit = hitOf(toggle)
+	hit.MouseButton1Click:Fire()
+	task.wait(0.3)
+	eq(dialogs(), 1, "dialog opened")
+	eq(toggle:Get(), false, "nothing changed yet")
+	eq(#seen, 0, "no callback yet")
+	hit.MouseButton1Click:Fire()
+	task.wait(0.3)
+	eq(dialogs(), 1, "a second click while the dialog is open is ignored")
+	modalButton(next(Library.Modals), "Cancel").MouseButton1Click:Fire()
+	task.wait(0.5)
+	eq(toggle:Get(), false, "declined: still off")
+	eq(#seen, 0, "declined: no callback")
+
+	hit.MouseButton1Click:Fire()
+	task.wait(0.3)
+	modalButton(next(Library.Modals), "Continue").MouseButton1Click:Fire()
+	task.wait(0.5)
+	eq(toggle:Get(), true, "accepted: on")
+	eq(#seen, 1, "accepted: callback once")
+	hit.MouseButton1Click:Fire()
+	task.wait(0.3)
+	eq(dialogs(), 0, "turning OFF does not ask by default")
+	eq(toggle:Get(), false, "off again")
+	toggle:Destroy()
+end)
+
+test("toggle Warning: code and config never trigger the dialog", function()
+	local toggle = section:CreateToggle({ Name = "Quiet", Flag = "quiet_flag", Warning = { Title = "Sure?" } })
+	toggle:Set(true)
+	eq(dialogs(), 0, "Set() is silent")
+	eq(toggle:Get(), true, "applied")
+	toggle:Set(false, true)
+	Library:ImportConfig({ quiet_flag = true })
+	task.wait(0.3)
+	eq(dialogs(), 0, "ImportConfig is silent")
+	eq(toggle:Get(), true, "imported")
+	toggle:Destroy()
+end)
+
+test("button Warning: a failing check blocks the callback, a passing one lets it through", function()
+	local calls, ready = 0, false
+	local button = section:CreateButton({
+		Name = "Go", Callback = function() calls += 1 end,
+		Warning = { Mode = "Check", Check = function() return ready, "Not ready yet" end, Duration = 0.3 },
+	})
+	local hit = hitOf(button)
+	local base = Library.Notifications.Active
+	hit.MouseButton1Click:Fire()
+	task.wait(0.2)
+	eq(calls, 0, "blocked")
+	eq(Library.Notifications.Active - base, 1, "the reason is shown")
+	task.wait(1)
+	ready = true
+	hit.MouseButton1Click:Fire()
+	task.wait(0.2)
+	eq(calls, 1, "passed")
+	button:Destroy()
+end)
+
+test("button Warning After: callback first, then a notice", function()
+	local calls = 0
+	local button = section:CreateButton({
+		Name = "Do", Callback = function() calls += 1 end,
+		Warning = { Mode = "After", Title = "Done", Content = "It ran.", Level = "Success", Duration = 0.3 },
+	})
+	local base = Library.Notifications.Active
+	hitOf(button).MouseButton1Click:Fire()
+	task.wait(0.2)
+	eq(calls, 1, "callback ran")
+	eq(Library.Notifications.Active - base, 1, "notice shown")
+	task.wait(1)
+	button:Destroy()
+end)
+
+test("dropdown Warning with When: only the risky option asks, a single pick closes the list at once", function()
+	local picked
+	local dd = section:CreateDropdown({
+		Name = "Mode", Options = { "Safe", "Risky" }, CurrentOption = "Safe",
+		Callback = function(v) picked = v end,
+		Warning = { Title = "Risky mode", When = function(ctx) return ctx.Value == "Risky" end },
+	})
+	dd:SetOpen(true)
+	Mock.Find(dd.Popup, function(i) return i:IsA("TextButton") and i.Text == "Safe" end).MouseButton1Click:Fire()
+	task.wait(0.3)
+	eq(dialogs(), 0, "Safe does not ask")
+	eq(dd.Open, false, "list closed")
+
+	dd:SetOpen(true)
+	Mock.Find(dd.Popup, function(i) return i:IsA("TextButton") and i.Text == "Risky" end).MouseButton1Click:Fire()
+	task.wait(0.3)
+	eq(dd.Open, false, "list closes even while the question is open")
+	eq(dialogs(), 1, "Risky asks")
+	eq(dd:Get(), "Safe", "selection unchanged until the answer")
+	modalButton(next(Library.Modals), "Cancel").MouseButton1Click:Fire()
+	task.wait(0.5)
+	eq(dd:Get(), "Safe", "declined")
+
+	dd:SetOpen(true)
+	Mock.Find(dd.Popup, function(i) return i:IsA("TextButton") and i.Text == "Risky" end).MouseButton1Click:Fire()
+	task.wait(0.3)
+	modalButton(next(Library.Modals), "Continue").MouseButton1Click:Fire()
+	task.wait(0.5)
+	eq(dd:Get(), "Risky", "accepted")
+	eq(picked, "Risky", "callback")
+	dd:Destroy()
+end)
+
+test("checklist Warning: Select and Deselect are separate actions", function()
+	local list = section:CreateChecklist({
+		Name = "Features", Options = { "a", "b" }, CurrentValue = { "a" },
+		Warning = { Title = "Removing?", Trigger = "Deselect" },
+	})
+	local function itemOf(name)
+		return Mock.Find(list.Instance, function(i) return i:IsA("TextLabel") and i.Text == name end).Parent
+	end
+	local itemB, itemA = itemOf("b"), itemOf("a")
+	itemB.MouseButton1Click:Fire()
+	task.wait(0.3)
+	eq(dialogs(), 0, "adding does not ask")
+	eq(#list:Get(), 2, "added")
+	itemA.MouseButton1Click:Fire()
+	task.wait(0.3)
+	eq(dialogs(), 1, "removing asks")
+	eq(#list:Get(), 2, "still selected until answered")
+	modalButton(next(Library.Modals), "Continue").MouseButton1Click:Fire()
+	task.wait(0.5)
+	eq(#list:Get(), 1, "removed after confirming")
+	list:Destroy()
+end)
+
+test("dialog: the Delay button stays dead until the countdown ends", function()
+	local toggle = section:CreateToggle({ Name = "Slow", Warning = { Title = "Wait", Delay = 3 } })
+	hitOf(toggle).MouseButton1Click:Fire()
+	task.wait(0.3)
+	local modal = next(Library.Modals)
+	local button = modalButton(modal, "Continue")
+	truthy(button.Text:find("%(%d%)"), "shows a countdown: " .. button.Text)
+	button.MouseButton1Click:Fire()
+	task.wait(0.2)
+	eq(toggle:Get(), false, "clicking early does nothing")
+	eq(dialogs(), 1, "dialog still open")
+	task.wait(3.5)
+	eq(button.Text, "Continue", "countdown finished")
+	button.MouseButton1Click:Fire()
+	task.wait(0.5)
+	eq(toggle:Get(), true, "works after the countdown")
+	toggle:Destroy()
+end)
+
+test("dialog: the tick box remembers the answer", function()
+	Library.Warnings:ClearRemembered()
+	local toggle = section:CreateToggle({ Name = "Ticked", Warning = { Id = "ui_remember", Title = "Sure?", Remember = true } })
+	local hit = hitOf(toggle)
+	hit.MouseButton1Click:Fire()
+	task.wait(0.3)
+	local modal = next(Library.Modals)
+	local row = Mock.Find(modal.Gui, function(i) return i:IsA("TextButton") and i.Text == "" and i.Size and i.Size.Y.Offset == 24 end)
+	truthy(row, "the tick box row exists")
+	row.MouseButton1Click:Fire()
+	eq(modal.Checked, true, "ticked")
+	modalButton(modal, "Continue").MouseButton1Click:Fire()
+	task.wait(0.5)
+	eq(toggle:Get(), true, "accepted")
+	hit.MouseButton1Click:Fire()
+	task.wait(0.3)
+	hit.MouseButton1Click:Fire()
+	task.wait(0.3)
+	eq(dialogs(), 0, "never asked again")
+	eq(toggle:Get(), true, "turned back on without a dialog")
+	toggle:Destroy()
+	Library.Warnings:ClearRemembered()
+end)
+
+test("dialog levels draw their own glyph, no text", function()
+	for _, level in { "Info", "Success", "Warning", "Danger" } do
+		local dialog = Library:Dialog({ Title = level, Content = "x", Level = level })
+		local texts = {}
+		for _, inst in dialog.Gui:GetDescendants() do
+			if inst:IsA("TextLabel") and inst.Text ~= "" and inst.Text ~= level and inst.Text ~= "x" then
+				table.insert(texts, inst.Text)
+			end
+		end
+		eq(#texts, 0, level .. " dialog has stray text: " .. table.concat(texts, ","))
+		local badge = Mock.Find(dialog.Gui, function(i) return i:IsA("Frame") and i.Size and i.Size.X.Offset == 48 end)
+		truthy(Mock.Find(badge, function(i) return i:IsA("Frame") and i.Rotation ~= 0 and i.Rotation ~= nil end) or level == "Info" or level == "Warning" or level == "Danger", "glyph drawn")
+		dialog:Close()
+	end
+	task.wait(1)
+end)
+
 local function buttonWindow()
 	local w = Library:CreateWindow({ Name = "Btn", MobileButton = true, ToggleKey = false })
 	w.Gui.AbsoluteSize = Vector2.new(1000, 600)

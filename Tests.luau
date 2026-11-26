@@ -810,6 +810,299 @@ test("a key system needs a key source", function()
 	throws(function() Library:KeySystem({}) end, "empty options")
 end)
 
+print("\n[Warnings]")
+
+-- runs Library:Guard in its own thread (a dialog makes it wait) and reports what happened
+local function guard(specs, ctx)
+	local result = { applied = 0 }
+	task.spawn(function()
+		result.allowed = Library:Guard(specs, function()
+			result.applied += 1
+		end, ctx or { Name = "test", Action = "Click" })
+		result.done = true
+	end)
+	return result
+end
+
+local function openDialog()
+	settle(0.3)
+	return next(Library.Modals)
+end
+
+local function toasts()
+	return Library.Notifications.Active
+end
+
+test("Before: confirming runs the action, Cancel and the X do not", function()
+	local run = guard({ Title = "Sure?", Content = "This is risky." })
+	local modal = openDialog()
+	truthy(modal, "dialog shown")
+	eq(run.applied, 0, "nothing runs while the question is open")
+	eq(run.done, nil, "the caller waits")
+	eq(modal:Press("Continue"), true, "Continue is pressable")
+	settle(0.5)
+	eq(run.allowed, true, "allowed")
+	eq(run.applied, 1, "applied once")
+
+	local declined = guard({ Title = "Sure?" })
+	openDialog():Press("Cancel")
+	settle(0.5)
+	eq(declined.allowed, false, "declined")
+	eq(declined.applied, 0, "not applied")
+
+	local closed = guard({ Title = "Sure?" })
+	openDialog():Close()
+	settle(0.5)
+	eq(closed.allowed, false, "closing counts as no")
+	eq(closed.applied, 0, "not applied")
+end)
+
+test("Before: custom button names and the Delay lock", function()
+	local run = guard({ Title = "Wait", Yes = "Do it", No = "Nope", Delay = 2 })
+	local modal = openDialog()
+	eq(modal:Press("Do it"), false, "locked at first")
+	eq(run.applied, 0, "still nothing")
+	settle(2.6)
+	eq(modal:Press("Do it"), true, "unlocked after the delay")
+	settle(0.5)
+	eq(run.applied, 1, "applied")
+end)
+
+test("Before: Remember mutes the question for good, only when ticked and accepted", function()
+	Library.Warnings:ClearRemembered()
+	local spec = { Id = "t_remember", Remember = true, Title = "Again?" }
+
+	local first = guard(spec)
+	local modal = openDialog()
+	modal.Checked = true
+	modal:Press("Cancel")
+	settle(0.5)
+	eq(first.allowed, false, "declined")
+	local second = guard(spec)
+	local again = openDialog()
+	truthy(again, "ticking the box and declining does not remember anything")
+	again.Checked = true
+	again:Press("Continue")
+	settle(0.5)
+	eq(second.applied, 1, "accepted")
+
+	local third = guard(spec)
+	settle(0.5)
+	eq(next(Library.Modals), nil, "no dialog the third time")
+	eq(third.applied, 1, "applied straight away")
+	Library.Warnings:ClearRemembered()
+end)
+
+test("Before: Once asks until it is accepted, then stays quiet", function()
+	local spec = { Id = "t_once", Once = true }
+	local first = guard(spec)
+	openDialog():Press("Cancel")
+	settle(0.5)
+	local second = guard(spec)
+	local modal = openDialog()
+	truthy(modal, "a declined question is asked again")
+	modal:Press("Continue")
+	settle(0.5)
+	eq(second.applied, 1, "accepted")
+	local third = guard(spec)
+	settle(0.5)
+	eq(third.applied, 1, "no dialog after it was accepted")
+	eq(first.applied, 0, "the declined one never ran")
+end)
+
+test("Check: pass, block and warn-only", function()
+	eq(toasts(), 0, "no toast to start with")
+	local pass = guard({ Mode = "Check", Check = function() return true end })
+	eq(pass.allowed, true, "passes")
+	eq(pass.applied, 1, "applied")
+	eq(toasts(), 0, "silent on success")
+
+	local blocked = guard({ Check = function() return false, "Not in a round" end, Level = "Danger", Duration = 0.3 })
+	eq(blocked.allowed, false, "mode is inferred from Check, and it blocks")
+	eq(blocked.applied, 0, "not applied")
+	eq(toasts(), 1, "the reason is shown as a toast")
+	settle(1)
+
+	local soft = guard({ Mode = "Check", Block = false, Check = function() return false, "Heads up" end, Duration = 0.3 })
+	eq(soft.allowed, true, "Block = false lets it through")
+	eq(soft.applied, 1, "applied")
+	eq(toasts(), 1, "but still warns")
+	settle(1)
+
+	local broken = guard({ Mode = "Check", Check = function() error("boom") end, Duration = 0.3 })
+	eq(broken.allowed, false, "a check that errors blocks")
+	settle(1)
+
+	local viaDialog = guard({ Mode = "Check", Check = function() return false, "Read this" end, Display = "Dialog" })
+	local modal = openDialog()
+	truthy(modal, "Display = Dialog shows a dialog")
+	eq(viaDialog.allowed, false, "still blocked")
+	modal:Press("OK")
+	settle(1)
+end)
+
+test("After: the action runs first, then the notice, and Once keeps it to one", function()
+	local order = {}
+	local spec = { Mode = "After", Id = "t_after", Once = true, Title = "Done", Level = "Success", Duration = 0.3 }
+	local ok = Library:Guard(spec, function()
+		table.insert(order, "action:" .. toasts())
+	end, { Name = "t", Action = "Click" })
+	eq(ok, true, "allowed")
+	settle(0.1)
+	eq(order[1], "action:0", "the notice was not up yet when the action ran")
+	eq(toasts(), 1, "notice shown afterwards")
+	settle(1)
+	Library:Guard(spec, function() end, { Name = "t", Action = "Click" })
+	settle(0.1)
+	eq(toasts(), 0, "Once: no second notice")
+end)
+
+test("Trigger and When decide whether a warning applies", function()
+	local onDisable = { Mode = "After", Trigger = "Disable", Duration = 0.3 }
+	Library:Guard(onDisable, function() end, { Name = "t", Action = "Enable" })
+	settle(0.1)
+	eq(toasts(), 0, "Trigger = Disable ignores Enable")
+	Library:Guard(onDisable, function() end, { Name = "t", Action = "Disable" })
+	settle(0.1)
+	eq(toasts(), 1, "and fires on Disable")
+	settle(1)
+
+	local defaults = { Mode = "After", Duration = 0.3 }
+	Library:Guard(defaults, function() end, { Name = "t", Action = "Disable" })
+	settle(0.1)
+	eq(toasts(), 0, "toggles warn on Enable only by default")
+	Library:Guard(defaults, function() end, { Name = "t", Action = "Click" })
+	settle(0.1)
+	eq(toasts(), 1, "other actions always apply")
+	settle(1)
+
+	local big = { Mode = "After", Duration = 0.3, When = function(ctx) return ctx.Value > 5 end }
+	Library:Guard(big, function() end, { Name = "t", Action = "Select", Value = 3 })
+	settle(0.1)
+	eq(toasts(), 0, "When = false")
+	Library:Guard(big, function() end, { Name = "t", Action = "Select", Value = 9 })
+	settle(0.1)
+	eq(toasts(), 1, "When = true")
+	settle(1)
+
+	local broken = { Mode = "After", Duration = 0.3, When = function() error("nope") end }
+	local ran = Library:Guard(broken, function() end, { Name = "t", Action = "Click" })
+	settle(0.1)
+	eq(ran, true, "a throwing When never blocks the action")
+	eq(toasts(), 0, "and shows nothing")
+end)
+
+test("Cooldown stops a blocking check from spamming, it still blocks", function()
+	local spec = { Mode = "Check", Id = "t_cool", Cooldown = 30, Duration = 0.5, Check = function() return false, "No" end }
+	local first = guard(spec)
+	eq(toasts(), 1, "first failure shows a toast")
+	local second = guard(spec)
+	eq(toasts(), 1, "second failure inside the cooldown stays quiet")
+	eq(first.allowed, false, "first blocked")
+	eq(second.allowed, false, "second blocked")
+	settle(1)
+end)
+
+test("several warnings run in order and stop at the first that blocks", function()
+	local calls = {}
+	local run = guard({
+		{ Mode = "Check", Check = function() table.insert(calls, "check"); return false, "blocked" end, Duration = 0.3 },
+		{ Mode = "Before", Title = "never asked" },
+	})
+	settle(0.3)
+	eq(next(Library.Modals), nil, "the dialog after a blocking check never opens")
+	eq(run.allowed, false, "blocked")
+	eq(#calls, 1, "check ran once")
+	settle(1)
+
+	local second = guard({
+		{ Mode = "Before", Title = "first" },
+		{ Mode = "Check", Check = function() table.insert(calls, "late"); return true end },
+	})
+	openDialog():Press("Continue")
+	settle(0.5)
+	eq(second.applied, 1, "both passed")
+	eq(calls[2], "late", "the check ran after the confirmation")
+end)
+
+test("Library:SetWarnings(false): no questions, no notices, blocking checks stay", function()
+	Library:SetWarnings(false)
+	local asked = guard({ Title = "Skipped?" })
+	settle(0.3)
+	eq(next(Library.Modals), nil, "no dialog")
+	eq(asked.allowed, true, "Before is accepted automatically")
+	Library:Guard({ Mode = "After", Duration = 0.3 }, function() end, { Name = "t", Action = "Click" })
+	settle(0.1)
+	eq(toasts(), 0, "After notices are skipped")
+	local blocked = guard({ Mode = "Check", Duration = 0.3, Check = function() return false, "Still on" end })
+	eq(blocked.allowed, false, "a blocking check still blocks")
+	eq(toasts(), 1, "and still explains why")
+	settle(1)
+	Library:SetWarnings(true)
+	local again = guard({ Title = "Asked again" })
+	truthy(openDialog(), "back to asking")
+	next(Library.Modals):Close()
+	settle(0.5)
+	eq(again.allowed, false, "closed")
+end)
+
+test("the log and OnWarning see every decision", function()
+	local seenByHook = {}
+	local connection = Library:OnWarning(function(entry)
+		table.insert(seenByHook, entry.Decision)
+	end)
+	local before = #Library:GetWarningLog()
+	guard({ Title = "Q1", Level = "Danger" })
+	openDialog():Press("Continue")
+	settle(0.5)
+	guard({ Title = "Q2" })
+	openDialog():Press("Cancel")
+	settle(0.5)
+	guard({ Mode = "Check", Check = function() return false, "no" end, Duration = 0.3 })
+	settle(1)
+	local log = Library:GetWarningLog()
+	eq(#log - before, 3, "three entries")
+	eq(log[#log - 2].Decision, "Accepted", "accepted")
+	eq(log[#log - 2].Level, "Danger", "level recorded")
+	eq(log[#log - 1].Decision, "Declined", "declined")
+	eq(log[#log].Decision, "Blocked", "blocked")
+	eq(table.concat(seenByHook, ","), "Accepted,Declined,Blocked", "hook saw them in order")
+	connection.Disconnect()
+	guard({ Mode = "Check", Check = function() return false, "no" end, Duration = 0.3 })
+	settle(1)
+	eq(#seenByHook, 3, "disconnected hooks hear nothing")
+	log[1] = nil
+	truthy(#Library:GetWarningLog() > 0, "the returned log is a copy")
+end)
+
+test("Library:Warn shows a one-off notice", function()
+	eq(Library:Warn({ Content = "Careful", Level = "Danger", Duration = 0.3 }), true, "toast")
+	eq(toasts(), 1, "shown")
+	settle(1)
+	eq(Library:Warn("just text"), true, "string shorthand")
+	settle(8)
+	Library:Warn({ Title = "Dialog", Content = "Read me", Display = "Dialog" })
+	local modal = openDialog()
+	truthy(modal, "dialog")
+	modal:Press("OK")
+	settle(1)
+	eq(Library:Warn({ Id = "t_warn_once", Once = true, Content = "x", Duration = 0.3 }), true, "first")
+	settle(1)
+	eq(Library:Warn({ Id = "t_warn_once", Once = true, Content = "x", Duration = 0.3 }), false, "muted the second time")
+end)
+
+test("unknown levels fall back to Warning, unknown modes to Before", function()
+	local before = #Library:GetWarningLog()
+	guard({ Level = "Catastrophic", Mode = "sometimes", Title = "Odd" })
+	local modal = openDialog()
+	truthy(modal, "treated as Before")
+	modal:Press("Continue")
+	settle(0.5)
+	local log = Library:GetWarningLog()
+	eq(log[#log].Level, "Warning", "level fell back")
+	eq(#log - before, 1, "one entry")
+end)
+
 print("\n[Lifecycle]")
 
 test("destroying an element frees its flag and its window-maid slot", function()
